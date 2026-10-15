@@ -44,6 +44,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { background: var(--paper); margin: 0; }
 body { color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 a { color: var(--link); }
@@ -52,7 +53,9 @@ h1 { font-size: 1.7rem; margin: 0.3rem 0 0.5rem; }
 h2 { font-size: 1.25rem; margin: 1.6rem 0 0.6rem; }
 h3 { font-size: 1.02rem; margin: 0 0 0.25rem; }
 .ex-muted { color: var(--ink-2); font-size: 0.92rem; }
+.ex-desc { color: var(--ink-2); margin: 0.1rem 0 0.8rem; max-width: 60rem; }
 code { font-size: 0.9em; }
+.ex-linkbtn { font: inherit; font-size: 0.85rem; background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 
 .ex-topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.55rem 1.25rem; background: var(--card); border-bottom: 1px solid var(--line); }
 .ex-brand { display: flex; flex-direction: column; text-decoration: none; line-height: 1.15; }
@@ -65,30 +68,48 @@ code { font-size: 0.9em; }
 body.is-embed .ex-topbar { display: none; }
 body.is-embed .ex-main { padding: 0.25rem; max-width: none; }
 
-/* -- the board: the scenario, two controls, four numbers, one figure ------- */
-.ex-page { display: flex; flex-direction: column; gap: 0.9rem; }
-.ex-scen h1 { margin: 0.1rem 0 0.2rem; }
-.ex-eyebrow { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent); font-weight: 700; margin: 0; }
-.ex-desc { color: var(--ink-2); margin: 0.1rem 0 0.5rem; max-width: 60rem; }
-.ex-changed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; font-size: 0.9rem; }
-.ex-chip { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 0.05rem 0.65rem; font-size: 0.85rem; }
-.ex-linkbtn { font: inherit; font-size: 0.85rem; background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+/* -- the model page: one title, a paragraph, the panel and one figure ------ */
+.ex-page { display: flex; flex-direction: column; gap: 1rem; }
+.ex-model h1 { margin: 0.2rem 0 0.35rem; }
+.ex-intro { margin: 0; max-width: 62rem; color: var(--ink-2); }
+.ex-intro strong { color: var(--ink); font-weight: 600; }
+.ex-linkbtn.ex-about-link { font-size: inherit; font-weight: 600; white-space: nowrap; }
 
-.ex-about { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 1rem; }
-.ex-about > summary { cursor: pointer; padding: 0.55rem 0; font-weight: 600; color: var(--link); }
-.ex-about-body { max-width: 52rem; padding-bottom: 0.6rem; font-size: 0.95rem; }
-.ex-about-body p { margin: 0.5rem 0; }
+/* What can be chosen on the left, the figure on the right, so the figure
+   stays on screen beside the lever that moves it (RKB, 2026-10-13). */
+.ex-split { display: grid; grid-template-columns: minmax(260px, 310px) minmax(0, 1fr); gap: 1.1rem; align-items: start; }
+.ex-left { position: sticky; top: 3.9rem; max-height: calc(100vh - 4.7rem); display: flex; flex-direction: column; }
+.ex-right { min-width: 0; }
 
-.ex-ctl { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.65rem 0.9rem 0.75rem; }
-.ex-ctl-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); margin: 0 0 0.45rem; }
-.ex-ctl-hint { margin: 0.5rem 0 0; font-size: 0.82rem; }
-.ex-groups { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.ex-group { font: inherit; font-size: 0.88rem; padding: 0.22rem 0.75rem; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); cursor: pointer; }
+/* The panel: three sections, one open at a time; when the panel is taller
+   than the window, only the open section's contents scroll. */
+.ex-panel-nav { display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.ex-sec { display: flex; flex-direction: column; flex: none; min-height: 0; }
+.ex-sec.is-open { flex: 0 1 auto; }
+.ex-sec + .ex-sec { border-top: 1px solid var(--line); }
+.ex-sec-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label chev" "value chev"; align-items: center; column-gap: 0.6rem; width: 100%; padding: 0.55rem 0.85rem 0.6rem; background: none; border: 0; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.ex-sec-head:hover { background: var(--paper); }
+.ex-sec-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ex-sec-label { grid-area: label; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); font-weight: 600; }
+.ex-sec-value { grid-area: value; font-size: 0.94rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.ex-sec-head::after { grid-area: chev; content: ""; width: 0.45rem; height: 0.45rem; margin: 0 0.2rem 0.2rem 0; border-right: 2px solid var(--ink-2); border-bottom: 2px solid var(--ink-2); transform: rotate(-45deg); transition: transform 0.15s ease; }
+.ex-sec.is-open .ex-sec-head::after { transform: rotate(45deg); margin-bottom: 0.35rem; }
+.ex-sec-body { position: relative; flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0.1rem 0.85rem 0.85rem; }
+
+.ex-sec-desc { margin: 0 0 0.55rem; font-size: 0.86rem; color: var(--ink-2); }
+.ex-changed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.4rem; margin: 0 0 0.6rem; font-size: 0.84rem; }
+.ex-changed .ex-muted { font-size: 0.84rem; }
+.ex-chip { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 0.05rem 0.6rem; font-size: 0.82rem; }
+.ex-sub { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); font-weight: 600; margin: 0.3rem 0 0.4rem; }
+.ex-hint { margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--ink-2); }
+
+.ex-groups { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.ex-group { font: inherit; font-size: 0.84rem; padding: 0.18rem 0.65rem; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); cursor: pointer; }
 .ex-group:hover { border-color: var(--accent); }
 .ex-group.is-moved { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .ex-group.is-open { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: none; }
-.ex-drawer { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.4rem 1.1rem; margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--line); }
-.ex-lever { padding: 0.3rem 0; }
+.ex-drawer { display: grid; gap: 0.35rem; margin-top: 0.55rem; padding-top: 0.45rem; border-top: 1px solid var(--line); }
+.ex-lever { padding: 0.25rem 0; }
 .ex-lever label { display: block; font-size: 0.86rem; font-weight: 600; }
 .ex-lever .ex-lever-value { float: right; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; margin-left: 0.5rem; }
 .ex-lever input[type=range] { width: 100%; accent-color: var(--accent); }
@@ -98,55 +119,72 @@ body.is-embed .ex-main { padding: 0.25rem; max-width: none; }
 .ex-lever-note { font-size: 0.76rem; color: var(--ink-2); }
 
 .ex-seg { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
-.ex-seg-btn { font: inherit; font-size: 0.88rem; padding: 0.22rem 0.75rem; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); cursor: pointer; }
+.ex-seg-btn { font: inherit; font-size: 0.86rem; padding: 0.2rem 0.75rem; border-radius: 999px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); cursor: pointer; }
+.ex-seg-btn:hover { border-color: var(--accent); }
 .ex-seg-btn.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.ex-seg-select { font: inherit; font-size: 0.88rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line-2); border-radius: 999px; background: var(--card); color: var(--ink); max-width: 100%; }
+.ex-seg-select { display: block; width: 100%; margin-top: 0.5rem; font: inherit; font-size: 0.86rem; padding: 0.25rem 0.4rem; border: 1px solid var(--line-2); border-radius: 8px; background: var(--card); color: var(--ink); }
 .ex-seg-select.is-on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
-.ex-numbers { display: flex; flex-direction: column; gap: 0.4rem; }
-.ex-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.6rem; margin: 0; }
-.ex-tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.75rem; }
-.ex-tile dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); font-weight: 600; }
-.ex-tile dd { margin: 0.1rem 0 0; font-size: 1.2rem; font-weight: 650; }
-.ex-tile .ex-delta { display: block; font-size: 0.8rem; font-weight: 500; color: var(--ink-2); }
-.ex-delta-note { margin: 0; font-size: 0.82rem; }
-.ex-more > summary { cursor: pointer; font-size: 0.88rem; color: var(--link); width: max-content; margin-bottom: 0.4rem; }
-
-/* The board in two columns: what can be changed on the left, what it does
-   on the right, so the figure is on screen without scrolling. */
-.ex-split { display: grid; grid-template-columns: minmax(270px, 330px) minmax(0, 1fr); gap: 1rem; align-items: start; }
-.ex-left { position: sticky; top: 3.8rem; max-height: calc(100vh - 4.6rem); overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; padding-bottom: 0.5rem; }
-.ex-left .ex-drawer { grid-template-columns: 1fr; }
-.ex-right { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
-.ex-right .ex-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.ex-right .ex-plot { min-height: 420px; }
 .ex-fignav { font-size: 0.9rem; }
-.ex-fignav h3 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); margin: 0.5rem 0.3rem 0.2rem; }
+.ex-fignav h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); font-weight: 600; margin: 0.7rem 0.45rem 0.15rem; }
+.ex-fignav h3:first-child { margin-top: 0.15rem; }
 .ex-fignav ul { list-style: none; margin: 0; padding: 0; }
-.ex-fignav a { display: block; padding: 0.28rem 0.45rem; border-radius: 7px; text-decoration: none; color: var(--ink); line-height: 1.3; }
+.ex-fignav a { display: block; padding: 0.22rem 0.45rem; border-radius: 7px; text-decoration: none; color: var(--ink); line-height: 1.3; }
 .ex-fignav a:hover { background: var(--paper); }
 .ex-fignav a.is-current { background: var(--accent-soft); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 
-/* the old board's tab row, kept for the sweep page's controls */
-.ex-tabs { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.6rem 0 0.8rem; }
+/* "About this model": the model's whole description, over the page. */
+.ex-dialog { width: min(56rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); padding: 0; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink); box-shadow: 0 12px 48px rgba(10, 15, 20, 0.28); }
+.ex-dialog::backdrop { background: rgba(10, 15, 20, 0.45); }
+.ex-dialog-head { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.7rem 1.25rem; background: var(--card); border-bottom: 1px solid var(--line); }
+.ex-dialog-head h2 { margin: 0; font-size: 1.15rem; }
+.ex-dialog-close { font: inherit; font-size: 1.6rem; line-height: 1; padding: 0 0.35rem 0.1rem; border: 0; border-radius: 6px; background: none; color: var(--ink-2); cursor: pointer; }
+.ex-dialog-close:hover { background: var(--paper); color: var(--ink); }
+.ex-dialog-body { padding: 0.3rem 1.25rem 1.25rem; font-size: 0.95rem; overflow-x: auto; }
+.ex-dialog-body p { margin: 0.6rem 0; }
+.ex-dialog-body h2, .ex-dialog-body h3 { font-size: 1rem; margin: 1.2rem 0 0.4rem; }
+.ex-dialog-body table { border-collapse: collapse; width: 100%; margin: 0.8rem 0; font-size: 0.88rem; }
+.ex-dialog-body th, .ex-dialog-body td { padding: 0.35rem 0.55rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.ex-dialog-body th { color: var(--ink-2); font-weight: 600; }
 
-.ex-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 1rem; }
-.ex-fig { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.8rem 0.9rem 0.6rem; box-shadow: var(--shadow); min-width: 0; }
-.ex-fig.is-wide { grid-column: 1 / -1; }
+/* -- a figure -------------------------------------------------------------- */
+.ex-fig { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.85rem 1rem 0.7rem; box-shadow: var(--shadow); min-width: 0; }
 .ex-fig-head { display: flex; justify-content: space-between; gap: 0.6rem; align-items: baseline; }
-.ex-fig-head h3 { font-size: 1rem; }
+.ex-fig-head h2 { font-size: 1.1rem; margin: 0; }
 .ex-fig-tools { display: flex; gap: 0.6rem; font-size: 0.8rem; white-space: nowrap; }
 .ex-fig-tools button, .ex-fig-tools a { font: inherit; background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.ex-fig-shows { color: var(--ink-2); font-size: 0.88rem; margin: 0.1rem 0 0.3rem; }
-.ex-fig-controls { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; font-size: 0.84rem; margin: 0.2rem 0 0.2rem; align-items: center; }
+.ex-fig-shows { color: var(--ink-2); font-size: 0.9rem; margin: 0.15rem 0 0.35rem; }
+.ex-fig-controls { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; font-size: 0.84rem; margin: 0.2rem 0; align-items: center; }
+.ex-fig-controls:empty { display: none; }
 .ex-fig-controls select, .ex-fig-controls input { font: inherit; font-size: 0.84rem; padding: 0.1rem 0.25rem; border: 1px solid var(--line-2); border-radius: 6px; background: var(--card); color: var(--ink); }
 .ex-plot { width: 100%; min-height: 340px; }
+.ex-plot.is-empty, .ex-plot.is-html { min-height: 0; }
+.ex-note { margin: 0.3rem 0 0; font-size: 0.86rem; }
 .ex-table-wrap { overflow-x: auto; margin-top: 0.4rem; }
 table.ex-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
 .ex-table th, .ex-table td { padding: 0.25rem 0.45rem; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
 .ex-table th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--card); }
 .ex-table td.num, .ex-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .ex-table tr.is-current td { background: var(--accent-soft); }
+
+/* A figure that cannot hold two scenarios, drawn once for each: side by
+   side, or one above the other when the figure is wide. */
+.ex-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 0.6rem 1.4rem; margin-top: 0.4rem; }
+.ex-pair.is-stacked { grid-template-columns: minmax(0, 1fr); }
+.ex-pair.is-stacked .ex-pane + .ex-pane { border-top: 1px solid var(--line); padding-top: 0.6rem; }
+.ex-pane { min-width: 0; }
+.ex-pane-head { margin: 0.1rem 0 0.2rem; font-size: 0.9rem; font-weight: 600; }
+.ex-pane-tag { margin-right: 0.35rem; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-2); font-weight: 600; }
+.ex-pane.is-comparison .ex-pane-head { color: var(--ink-2); }
+
+/* The headline numbers: at most four to a row. */
+.ex-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(max(150px, calc((100% - 1.8rem) / 4)), 1fr)); gap: 0.6rem; margin: 0.5rem 0 0.2rem; }
+.ex-tile { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.65rem 0.8rem; }
+.ex-tile dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); font-weight: 600; }
+.ex-tile dd { margin: 0.2rem 0 0; }
+.ex-tile-value { font-size: 1.4rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.ex-tile-unit { font-size: 0.85rem; color: var(--ink-2); }
+.ex-delta { display: block; margin-top: 0.1rem; font-size: 0.82rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
 /* -- sweep, home ------------------------------------------------------------ */
 .ex-sweep-controls { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; align-items: end; margin-bottom: 0.8rem; }
@@ -157,14 +195,13 @@ table.ex-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
 .btn-ex { display: inline-block; font: inherit; font-size: 0.92rem; font-weight: 600; padding: 0.38rem 0.9rem; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); text-decoration: none; cursor: pointer; }
 
 @media (max-width: 900px) {
-  .ex-split { grid-template-columns: 1fr; }
-  .ex-left { position: static; max-height: none; }
-  .ex-fignav ul { display: flex; flex-wrap: wrap; gap: 0.2rem; }
-  .ex-figs { grid-template-columns: 1fr; }
+  .ex-split { grid-template-columns: minmax(0, 1fr); }
+  .ex-left { position: static; max-height: none; display: block; }
+  .ex-sec-body { overflow: visible; }
 }
 @media (max-width: 600px) {
-  .ex-right .ex-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ex-topbar { flex-direction: column; align-items: flex-start; padding: 0.5rem 0.75rem; }
   .ex-main { padding: 0.75rem 0.75rem 3rem; }
-  .ex-figs { grid-template-columns: minmax(0, 1fr); }
+  .ex-fig { padding: 0.7rem 0.7rem 0.6rem; }
+  .ex-fig-head { flex-wrap: wrap; }
 }

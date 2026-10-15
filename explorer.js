@@ -1,14 +1,21 @@
-/* The Explorer: routes, the lever panel, the board of figures, sweeps and
- * the scenario table. Everything is computed in the
- * browser from data/<model>/: catalogue.json, kpis.json and one file per
- * scenario, fetched when first needed.
+/* The Explorer: routes, the model page, figures, sweeps and the scenario
+ * table. Everything is computed in the browser from data/<model>/:
+ * catalogue.json, kpis.json and one file per scenario, fetched when first
+ * needed.
  *
  * Routes (also how the Lab embeds a view):
- *   #/                                  home
- *   #/m/<model>?s=&c=&tab=&zone=&week=  the board
+ *   #/                                         home
+ *   #/m/<model>?s=&c=&fig=&zone=&week=           the model page
  *   #/m/<model>/sweep?lever=&metric=&crossed=off
- *   #/m/<model>/table                   every scenario's numbers
- *   #/figure/<id>?m=&s=&c=&zone=&embed=1  one figure, alone
+ *   #/m/<model>/table                          every scenario's numbers
+ *   #/figure/<id>?m=&s=&c=&zone=&embed=1         one figure, alone
+ *
+ * The model page (RKB, 2026-10-15): one title, the Explorer's short summary
+ * of the model ending on "About this model", then a panel on the left with
+ * three sections, one open at a time (the scenario, what it is compared
+ * with, the figure), and one figure on the right. The headline numbers are
+ * one of the figures. Every figure compares, and only when the reader asks:
+ * one that cannot hold two scenarios is drawn twice, on shared scales.
  *
  * What it may say (decided with RKB, 2026-10-12): what a number is, never
  * what it means. Titles, captions, units and encoding notes describe; the
@@ -20,6 +27,10 @@
   var U = window.EXU, F = window.FIGURES;
   var main = document.getElementById("ex-main");
   var store = { cat: {}, kpis: {}, scen: {}, models: null };
+  // What outlives a render: the panel's open section, how far each of its
+  // lists was scrolled, the lever group on show, the view on screen, and
+  // the window's scroll when a change should keep it.
+  var ui = { open: null, scroll: {}, group: "", model: "", path: null, restoreY: null, toFigure: false };
 
   // -- data ------------------------------------------------------------------
   function getJSON(url) {
@@ -58,11 +69,13 @@
     return s;
   }
   function go(parts, q, keepScroll) {
-    var y = window.scrollY;
+    ui.restoreY = keepScroll ? window.scrollY : null;
     var target = href(parts, q);
     if (location.hash === target) { render(); return; }
     location.hash = target;
-    if (keepScroll) setTimeout(function () { window.scrollTo(0, y); }, 0);
+  }
+  function narrow() {
+    return !!(window.matchMedia && window.matchMedia("(max-width: 900px)").matches);
   }
 
   function esc(s) {
@@ -129,10 +142,15 @@
     }
     return String(v);
   }
-
-  // -- changing the scenario (RKB, 2026-10-13: less on the page at once) --------
-  // The levers come in groups; one group is open at a time, chosen from a row
-  // of chips, instead of every lever of the model in one long panel.
+  function movedLevers(cat, s) {
+    return cat.levers.filter(function (l) { return String(leverValue(s, l)) !== String(l.reference); });
+  }
+  // A comparison is only ever switched on by the reader (RKB, 2026-10-15):
+  // a new scenario keeps the one chosen, and drops it rather than compare
+  // the scenario with itself.
+  function keepComparison(q, sId) {
+    return q.c && q.c !== sId ? q.c : "";
+  }
 
   function leverRow(cat, s, m, q, l, opts) {
     var cur = leverValue(s, l);
@@ -141,7 +159,7 @@
     row.appendChild(el("label", { for: id }, esc(l.label) + '<span class="ex-lever-value">' + esc(fmtLever(l, cur)) + "</span>"));
     var move = function (v) {
       var target = findScenario(cat, s, l.id, v);
-      if (target) go(["m", m], Object.assign({}, q, { s: target.id, c: q.c || (target.id !== cat.reference ? s.id : "") }), true);
+      if (target) go(["m", m], Object.assign({}, q, { s: target.id, c: keepComparison(q, target.id) }), true);
     };
     var input;
     if (l.kind === "sweep") {
@@ -169,7 +187,124 @@
     return row;
   }
 
-  function leverControls(cat, s, m, q) {
+  // The group a scenario belongs to in a menu: that of the first lever it
+  // moves, in the catalogue's order.
+  function scenarioGroup(cat, x) {
+    var moved = movedLevers(cat, x);
+    return moved.length ? moved[0].group : "Reference";
+  }
+
+  // -- the model page ------------------------------------------------------------
+
+  // One title, the Explorer's short summary of the model
+  // (lab/models/<model>.summary.md), and its whole description one click away.
+  function modelHeader(cat) {
+    var head = el("header", { class: "ex-model" });
+    head.appendChild(el("h1", {}, esc(cat.title)));
+    var p = el("p", { class: "ex-intro" }, cat.intro_html || "");
+    if (cat.about_html) {
+      var dialog = aboutDialog(cat);
+      var link = el("button", { type: "button", class: "ex-linkbtn ex-about-link", "aria-haspopup": "dialog" }, "About this model");
+      link.addEventListener("click", function () {
+        if (dialog.showModal) dialog.showModal(); else dialog.setAttribute("open", "");
+      });
+      if (cat.intro_html) p.appendChild(document.createTextNode(" "));
+      p.appendChild(link);
+      head.appendChild(dialog);
+    }
+    head.appendChild(p);
+    return head;
+  }
+  function aboutDialog(cat) {
+    var d = el("dialog", { class: "ex-dialog", "aria-labelledby": "ex-about-title" });
+    var head = el("div", { class: "ex-dialog-head" });
+    head.appendChild(el("h2", { id: "ex-about-title" }, "About this model"));
+    var close = el("button", { type: "button", class: "ex-dialog-close", "aria-label": "Close" }, "&times;");
+    close.addEventListener("click", function () { d.close(); });
+    head.appendChild(close);
+    d.appendChild(head);
+    d.appendChild(el("div", { class: "ex-dialog-body" }, cat.about_html));
+    // A click outside the content lands on the dialog itself: close it.
+    d.addEventListener("click", function (e) { if (e.target === d) d.close(); });
+    return d;
+  }
+
+  // The panel on the left: three sections, one open at a time. A closed
+  // section shows what is chosen in it, so the panel always says which
+  // scenario, which comparison and which figure are on screen.
+  function panel(sections) {
+    var nav = el("nav", { class: "ex-panel-nav", "aria-label": "Scenario, comparison and figure" });
+    var parts = sections.map(function (x) {
+      var sec = el("section", { class: "ex-sec" });
+      var head = el("button", { type: "button", class: "ex-sec-head", id: "sec-head-" + x.key, "aria-controls": "sec-" + x.key },
+        '<span class="ex-sec-label">' + esc(x.label) + '</span><span class="ex-sec-value">' + esc(x.value) + "</span>");
+      var body = el("div", { class: "ex-sec-body", id: "sec-" + x.key, role: "region", "aria-labelledby": "sec-head-" + x.key });
+      body.appendChild(x.body);
+      head.addEventListener("click", function () { open(ui.open === x.key ? "" : x.key); });
+      sec.appendChild(head);
+      sec.appendChild(body);
+      nav.appendChild(sec);
+      return { key: x.key, sec: sec, head: head, body: body };
+    });
+    function open(key) {
+      ui.open = key;
+      parts.forEach(function (p) {
+        var on = p.key === key;
+        p.sec.classList.toggle("is-open", on);
+        p.head.setAttribute("aria-expanded", String(on));
+        if (on) p.body.removeAttribute("hidden"); else p.body.setAttribute("hidden", "");
+      });
+    }
+    open(ui.open === null ? (narrow() ? "" : "figure") : ui.open);
+    return nav;
+  }
+
+  // The panel is as tall as the window below its top, so the headings of
+  // all three sections are on screen before it sticks as well as after.
+  function fitPanel() {
+    var left = main.querySelector(".ex-left");
+    if (!left) return;
+    if (narrow()) { left.style.maxHeight = ""; return; }
+    var top = Math.max(left.getBoundingClientRect().top, 0);
+    left.style.maxHeight = Math.max(260, window.innerHeight - top - 16) + "px";
+  }
+  var fitQueued = false;
+  function queueFit() {
+    if (fitQueued) return;
+    fitQueued = true;
+    window.requestAnimationFrame(function () { fitQueued = false; fitPanel(); });
+  }
+  window.addEventListener("scroll", queueFit, { passive: true });
+  window.addEventListener("resize", queueFit);
+
+  // Scroll a list so that one of its items is in view, leaving the window
+  // where it is.
+  function reveal(node, box) {
+    var top = node.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    var bottom = top + node.offsetHeight;
+    if (top < box.scrollTop) box.scrollTop = top - 8;
+    else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight + 8;
+  }
+
+  // The scenario: what it is, what it changes, and the levers that move it,
+  // one group at a time.
+  function scenarioSection(cat, s, m, q) {
+    var box = el("div", {});
+    if (s.description) box.appendChild(el("p", { class: "ex-sec-desc" }, esc(s.description)));
+    var moved = movedLevers(cat, s);
+    if (moved.length) {
+      var changed = el("div", { class: "ex-changed" });
+      changed.appendChild(el("span", { class: "ex-muted" }, "Changed from the reference:"));
+      moved.forEach(function (l) {
+        changed.appendChild(el("span", { class: "ex-chip" }, esc(l.label) + ": <strong>" + esc(fmtLever(l, leverValue(s, l))) + "</strong>"));
+      });
+      var back = el("button", { type: "button", class: "ex-linkbtn" }, "Back to the reference");
+      back.addEventListener("click", function () {
+        go(["m", m], Object.assign({}, q, { s: cat.reference, c: keepComparison(q, cat.reference) }), true);
+      });
+      changed.appendChild(back);
+      box.appendChild(changed);
+    }
     var groups = [], byGroup = {};
     cat.levers.forEach(function (l) {
       var opts = leverOptions(cat, s, l);
@@ -177,59 +312,40 @@
       if (!byGroup[l.group]) { byGroup[l.group] = []; groups.push(l.group); }
       byGroup[l.group].push({ lever: l, opts: opts });
     });
-    var box = el("section", { class: "ex-ctl" });
-    box.appendChild(el("h2", { class: "ex-ctl-label" }, "Change one assumption"));
-    var open = byGroup[q.group] ? q.group : "";
-    var chips = el("div", { class: "ex-groups" });
+    if (!groups.length) return box;
+    box.appendChild(el("h3", { class: "ex-sub" }, "Change one assumption"));
+    var chips = el("div", { class: "ex-groups" }), shown = {};
     groups.forEach(function (g) {
-      var moved = byGroup[g].some(function (x) { return String(leverValue(s, x.lever)) !== String(x.lever.reference); });
-      var b = el("button", { type: "button", class: "ex-group" + (g === open ? " is-open" : "") + (moved ? " is-moved" : ""),
-        "aria-expanded": String(g === open) }, esc(g));
-      b.addEventListener("click", function () { go(["m", m], Object.assign({}, q, { s: s.id, group: g === open ? "" : g }), true); });
-      chips.appendChild(b);
-    });
-    box.appendChild(chips);
-    if (open) {
+      var isMoved = byGroup[g].some(function (x) { return String(leverValue(s, x.lever)) !== String(x.lever.reference); });
+      var chip = el("button", { type: "button", class: "ex-group" + (isMoved ? " is-moved" : "") }, esc(g));
       var drawer = el("div", { class: "ex-drawer" });
-      byGroup[open].forEach(function (x) { drawer.appendChild(leverRow(cat, s, m, q, x.lever, x.opts)); });
-      box.appendChild(drawer);
-    } else {
-      box.appendChild(el("p", { class: "ex-muted ex-ctl-hint" },
-        "Open a group to see its levers. Every setting is a solved scenario; moving one lever keeps the others where they are."));
-    }
-    return box;
-  }
-
-  // What this scenario changed, against the reference, as chips.
-  function changedChips(cat, s, m, q) {
-    var moved = cat.levers.filter(function (l) { return String(leverValue(s, l)) !== String(l.reference); });
-    var box = el("div", { class: "ex-changed" });
-    if (!moved.length) {
-      box.appendChild(el("span", { class: "ex-muted" }, "The reference case: every assumption as the note sets it."));
-      return box;
-    }
-    box.appendChild(el("span", { class: "ex-muted" }, "Changed from the reference:"));
-    moved.forEach(function (l) {
-      box.appendChild(el("span", { class: "ex-chip" }, esc(l.label) + ": <strong>" + esc(fmtLever(l, leverValue(s, l))) + "</strong>"));
+      byGroup[g].forEach(function (x) { drawer.appendChild(leverRow(cat, s, m, q, x.lever, x.opts)); });
+      chip.addEventListener("click", function () { show(g); });
+      chips.appendChild(chip);
+      shown[g] = { chip: chip, drawer: drawer };
     });
-    var back = el("button", { type: "button", class: "ex-linkbtn" }, "Back to the reference");
-    back.addEventListener("click", function () { go(["m", m], Object.assign({}, q, { s: cat.reference, c: "", group: q.group })); });
-    box.appendChild(back);
+    function show(g) {
+      ui.group = g;
+      groups.forEach(function (k) {
+        var on = k === g;
+        shown[k].chip.classList.toggle("is-open", on);
+        shown[k].chip.setAttribute("aria-pressed", String(on));
+        if (on) shown[k].drawer.removeAttribute("hidden"); else shown[k].drawer.setAttribute("hidden", "");
+      });
+    }
+    box.appendChild(chips);
+    groups.forEach(function (g) { box.appendChild(shown[g].drawer); });
+    // The group last opened; else the one this scenario moves; else the first.
+    var first = moved.length && byGroup[moved[0].group] ? moved[0].group : groups[0];
+    show(byGroup[q.group] ? q.group : byGroup[ui.group] ? ui.group : first);
+    box.appendChild(el("p", { class: "ex-hint" }, "Every setting is a solved scenario. Moving one lever keeps the others where they are."));
     return box;
-  }
-
-  // The group a scenario belongs to in a menu: that of the first lever it
-  // moves, in the catalogue's order.
-  function scenarioGroup(cat, x) {
-    var moved = cat.levers.filter(function (l) { return String(leverValue(x, l)) !== String(l.reference); });
-    return moved.length ? moved[0].group : "Reference";
   }
 
   // Compare with nothing, the reference, or one other scenario from a menu
-  // grouped by what it changes: three choices, not one long list.
-  function compareControl(cat, s, cId, m, q) {
-    var box = el("section", { class: "ex-ctl" });
-    box.appendChild(el("h2", { class: "ex-ctl-label" }, "Compare with"));
+  // grouped by what it changes.
+  function compareSection(cat, s, cId, m, q) {
+    var box = el("div", {});
     var row = el("div", { class: "ex-seg" });
     var options = [["", "Nothing"]];
     if (s.id !== cat.reference) options.push([cat.reference, "The reference"]);
@@ -238,9 +354,10 @@
       b.addEventListener("click", function () { go(["m", m], Object.assign({}, q, { s: s.id, c: o[0] }), true); });
       row.appendChild(b);
     });
+    box.appendChild(row);
     var other = cId && cId !== cat.reference;
-    var sel = el("select", { class: "ex-seg-select" + (other ? " is-on" : ""), "aria-label": "Another scenario to compare with" });
-    sel.appendChild(el("option", { value: "" }, other ? "Another scenario" : "Another scenario…"));
+    var sel = el("select", { id: "compare-other", class: "ex-seg-select" + (other ? " is-on" : ""), "aria-label": "Another scenario to compare with" });
+    sel.appendChild(el("option", { value: "" }, "Another scenario…"));
     var groups = {}, order = [];
     cat.scenarios.forEach(function (x) {
       if (!x.available || x.id === s.id || x.id === cat.reference) return;
@@ -258,9 +375,45 @@
       sel.appendChild(og);
     });
     sel.addEventListener("change", function () { if (sel.value) go(["m", m], Object.assign({}, q, { s: s.id, c: sel.value }), true); });
-    row.appendChild(sel);
-    box.appendChild(row);
-    if (cId) box.appendChild(el("p", { class: "ex-muted ex-ctl-hint" }, "Figures draw the comparison faded or dashed; the numbers show the difference."));
+    box.appendChild(sel);
+    box.appendChild(el("p", { class: "ex-hint" },
+      "A figure that can hold both scenarios draws the comparison faded or dashed. Any other is drawn twice, this scenario first, on the same scales."));
+    return box;
+  }
+
+  // The figures as a short list, grouped as the model's view groups them.
+  function navTitle(id, ctx) {
+    var f = F[id], params = Object.assign({}, ctx.params);
+    if (!params.zone) params.zone = defaultZone(f, ctx);
+    var t = typeof f.title === "function" ? f.title(Object.assign({}, ctx, { params: params })) : f.title;
+    return t.split(":")[0];
+  }
+  function figureSection(view, ctx, figId, m, q) {
+    var box = el("div", { class: "ex-fignav" });
+    view.tabs.forEach(function (t) {
+      var ids = t[2].filter(function (id) { return F[id]; });
+      if (!ids.length) return;
+      box.appendChild(el("h3", {}, esc(t[1])));
+      var ul = el("ul", {});
+      ids.forEach(function (id) {
+        var attrs = { href: href(["m", m], Object.assign({}, q, { fig: id })) };
+        if (id === figId) { attrs.class = "is-current"; attrs["aria-current"] = "page"; }
+        var a = el("a", attrs, esc(navTitle(id, ctx)));
+        // On a narrow screen the figure is below the panel: close the panel
+        // and go to the figure.
+        a.addEventListener("click", function (e) {
+          if (!narrow()) return;
+          e.preventDefault();
+          ui.open = "";
+          ui.toFigure = true;
+          go(["m", m], Object.assign({}, q, { fig: id }));
+        });
+        var li = el("li", {});
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+    });
     return box;
   }
 
@@ -335,66 +488,185 @@
     return (fig === F["price-duration"] || fig === F.heatmap) ? "DK1" : (fig === F.inspector ? "DK2" : "DK");
   }
 
+  // A figure on its own card. With a comparison, a figure that draws the
+  // comparison itself (compare: "overlay") is drawn once; any other is drawn
+  // twice, one drawing per scenario, side by side or, for a wide figure,
+  // one above the other, on shared scales.
   function figureCard(id, ctx, opts) {
-    var fig = F[id], card = el("section", { class: "ex-fig" + (fig.wide ? " is-wide" : ""), id: "fig-" + id });
+    var fig = F[id], card = el("section", { class: "ex-fig", id: "fig-" + id });
     var params = Object.assign({}, ctx.params);
     if (!params.zone) params.zone = defaultZone(fig, ctx);
     var local = Object.assign({}, ctx, { params: params });
     var title = typeof fig.title === "function" ? fig.title(local) : fig.title;
     var head = el("div", { class: "ex-fig-head" });
-    head.appendChild(el("h3", {}, esc(title)));
+    head.appendChild(el("h2", {}, esc(title)));
     var tools = el("div", { class: "ex-fig-tools" });
-    var tableBtn = el("button", { type: "button" }, "Table");
+    var tableBtn = el("button", { type: "button", "aria-pressed": "false" }, "Table");
     tools.appendChild(tableBtn);
     if (!opts.embed) {
-      var link = el("a", { href: href(["figure", id], Object.assign({ m: ctx.model, s: ctx.sId, c: ctx.cId || "" }, ctx.params)), title: "This figure alone, with its address" }, "Link");
-      tools.appendChild(link);
+      tools.appendChild(el("a", { href: href(["figure", id], Object.assign({ m: ctx.model, s: ctx.sId, c: ctx.cId || "" }, ctx.params)),
+        title: "This figure alone, with its address" }, "Link"));
     } else {
-      var open = el("a", { href: href(["m", ctx.model], Object.assign({ s: ctx.sId, c: ctx.cId || "" }, ctx.params)), target: "_blank", rel: "noopener" }, "Open in the Explorer");
-      tools.appendChild(open);
+      tools.appendChild(el("a", { href: href(["m", ctx.model], Object.assign({ s: ctx.sId, c: ctx.cId || "", fig: id }, ctx.params)),
+        target: "_blank", rel: "noopener" }, "Open in the Explorer"));
     }
     head.appendChild(tools);
     card.appendChild(head);
     card.appendChild(el("p", { class: "ex-fig-shows" }, esc(typeof fig.shows === "function" ? fig.shows(local) : fig.shows)));
     card.appendChild(controlsFor(fig, local, function (change) { opts.onParams(change); }));
-    var plot = el("div", { class: "ex-plot", role: "img", "aria-label": title });
-    card.appendChild(plot);
-    var note = el("p", { class: "ex-muted" });
-    card.appendChild(note);
-    var tableWrap = el("div", { class: "ex-table-wrap", hidden: "" });
-    card.appendChild(tableWrap);
-    var out;
-    try {
-      out = fig.draw(local);
-    } catch (e) {
-      plot.innerHTML = '<p class="ex-muted">This figure could not be drawn for this scenario (' + esc(e.message) + ").</p>";
-      return card;
+
+    var pair = !!(local.c && fig.compare !== "overlay");
+    var runs = pair ? pairContexts(fig, local) : [local];
+    var outs = runs.map(function (r) { return drawSafely(fig, r); });
+    if (pair) harmonise(outs);
+    var holder = card;
+    if (pair) {
+      holder = el("div", { class: "ex-pair" + (fig.wide ? " is-stacked" : "") });
+      card.appendChild(holder);
     }
-    note.textContent = out.note || "";
-    if (!out.traces.length) plot.style.minHeight = "0";
-    // The plot keeps the figure's own height. Plotly's responsive resize
-    // re-measures the div, and an embed resized while its plot was being
-    // drawn came out squeezed to the div's min-height.
-    else if (typeof out.layout.height === "number") plot.style.height = out.layout.height + "px";
+    var panels = runs.map(function (r, i) {
+      var into = holder;
+      if (pair) {
+        into = el("div", { class: "ex-pane" + (i ? " is-comparison" : "") });
+        into.appendChild(el("p", { class: "ex-pane-head" },
+          '<span class="ex-pane-tag">' + (i ? "Compared with" : "This scenario") + "</span> " + esc(r.sLabel)));
+        holder.appendChild(into);
+      }
+      return mount(into, outs[i], title, id + "-" + r.sId);
+    });
+    // A note that says the same under both drawings is said once, below them.
+    if (pair && outs[0].note && outs[0].note === outs[1].note && !outs[0].error && !outs[1].error) {
+      panels.forEach(function (p) { p.note.setAttribute("hidden", ""); });
+      card.appendChild(el("p", { class: "ex-muted ex-note" }, esc(outs[0].note)));
+    }
     setTimeout(function () {
-      if (out.traces.length) window.Plotly.react(plot, out.traces, out.layout, { displaylogo: false, responsive: true,
-        modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d"], toImageButtonOptions: { filename: id + "-" + ctx.sId } });
+      Promise.all(panels.map(function (p) { return p.plot(); })).then(function (gds) {
+        if (pair) shareRanges(gds.filter(Boolean));
+      });
     }, 0);
     tableBtn.addEventListener("click", function () {
-      if (tableWrap.hasAttribute("hidden")) {
-        tableWrap.innerHTML = tableHTML(out.table);
-        tableWrap.removeAttribute("hidden");
-        tableBtn.textContent = "Hide table";
-      } else {
-        tableWrap.setAttribute("hidden", "");
-        tableBtn.textContent = "Table";
-      }
+      var show = tableBtn.getAttribute("aria-pressed") !== "true";
+      panels.forEach(function (p) {
+        if (show) { p.table.innerHTML = tableHTML(p.out.table); p.table.removeAttribute("hidden"); }
+        else p.table.setAttribute("hidden", "");
+      });
+      tableBtn.setAttribute("aria-pressed", String(show));
+      tableBtn.textContent = show ? "Hide table" : "Table";
     });
     return card;
   }
+  function drawSafely(fig, ctx) {
+    try { return fig.draw(ctx); }
+    catch (e) { return { error: e.message, traces: [], layout: {}, table: null }; }
+  }
+  // The two drawings of a compared figure: each scenario on its own, and
+  // whatever the figure says they must share (the week, the hour).
+  function pairContexts(fig, ctx) {
+    var mine = Object.assign({}, ctx, { c: null, cId: "", cLabel: "", kpiC: null });
+    var shared = {};
+    try { shared = fig.pairParams ? fig.pairParams(mine) : {}; } catch (e) { shared = {}; }
+    mine.params = Object.assign({}, ctx.params, shared);
+    var theirs = Object.assign({}, ctx, { s: ctx.c, sId: ctx.cId, sLabel: ctx.cLabel, kpiS: ctx.kpiC,
+      c: null, cId: "", cLabel: "", kpiC: null, params: Object.assign({}, ctx.params, shared) });
+    return [mine, theirs];
+  }
+  // Before drawing: the same height, colour scale and order of categories in
+  // both drawings, so that a bar, a cell or a row means the same in each.
+  function harmonise(outs) {
+    var ok = outs.filter(function (o) { return !o.error && o.traces.length; });
+    if (ok.length < 2) return;
+    var h = Math.max.apply(null, ok.map(function (o) { return o.layout.height || 0; }));
+    if (h) ok.forEach(function (o) { o.layout.height = h; });
+    var z = [Infinity, -Infinity], c = [Infinity, -Infinity];
+    var each = function (f) { ok.forEach(function (o) { o.traces.forEach(f); }); };
+    each(function (t) {
+      if (t.type === "heatmap" && isFinite(t.zmin) && isFinite(t.zmax)) { z[0] = Math.min(z[0], t.zmin); z[1] = Math.max(z[1], t.zmax); }
+      if (t.marker && isFinite(t.marker.cmin) && isFinite(t.marker.cmax)) { c[0] = Math.min(c[0], t.marker.cmin); c[1] = Math.max(c[1], t.marker.cmax); }
+    });
+    each(function (t) {
+      if (t.type === "heatmap" && isFinite(t.zmin) && isFinite(z[0])) { t.zmin = z[0]; t.zmax = z[1]; }
+      if (t.marker && isFinite(t.marker.cmin) && isFinite(c[0])) { t.marker.cmin = c[0]; t.marker.cmax = c[1]; }
+    });
+    ["x", "y"].forEach(function (a) {
+      var order = [], seen = {}, text = true;
+      each(function (t) {
+        if (t.type === "heatmap" || (t[a + "axis"] || a) !== a) return;
+        (t[a] || []).forEach(function (v) {
+          if (v === null || v === undefined) return;
+          if (typeof v !== "string") { text = false; return; }
+          if (!seen[v]) { seen[v] = 1; order.push(v); }
+        });
+      });
+      if (!text || !order.length) return;
+      ok.forEach(function (o) {
+        o.layout[a + "axis"] = Object.assign({}, o.layout[a + "axis"] || {}, { categoryorder: "array", categoryarray: order });
+        // An invisible trace holding every category, so a row that only one
+        // scenario has is an empty row in the other, and the rows line up.
+        var none = order.map(function () { return null; });
+        o.traces.push({ type: "scatter", mode: "markers", x: a === "x" ? order : none, y: a === "y" ? order : none,
+          showlegend: false, hoverinfo: "skip", marker: { opacity: 0 } });
+      });
+    });
+  }
+  // After drawing: every numeric axis on the range that holds both.
+  function shareRanges(gds) {
+    if (gds.length < 2 || gds.some(function (g) { return !g._fullLayout; })) return;
+    var updates = gds.map(function () { return {}; });
+    Object.keys(gds[0]._fullLayout).forEach(function (k) {
+      if (!/^[xy]axis\d*$/.test(k)) return;
+      var axes = gds.map(function (g) { return g._fullLayout[k]; });
+      if (axes.some(function (ax) {
+        return !ax || !ax.range || ax.visible === false || ax.type === "category" || ax.type === "date" || ax.type === "multicategory";
+      })) return;
+      var lo = Infinity, hi = -Infinity, reversed = false;
+      axes.forEach(function (ax) {
+        lo = Math.min(lo, ax.range[0], ax.range[1]); hi = Math.max(hi, ax.range[0], ax.range[1]);
+        if (ax.range[0] > ax.range[1]) reversed = true;
+      });
+      if (!isFinite(lo) || !isFinite(hi)) return;
+      var range = reversed ? [hi, lo] : [lo, hi];
+      axes.forEach(function (ax, i) {
+        if (ax.range[0] !== range[0] || ax.range[1] !== range[1]) updates[i][k + ".range"] = range;
+      });
+    });
+    gds.forEach(function (g, i) { if (Object.keys(updates[i]).length) window.Plotly.relayout(g, updates[i]); });
+  }
+  // One drawing: the plot (or the figure's own HTML), its note, its table.
+  function mount(parent, out, title, filename) {
+    var plot = el("div", { class: "ex-plot", role: "img", "aria-label": title });
+    var note = el("p", { class: "ex-muted ex-note" });
+    var table = el("div", { class: "ex-table-wrap", hidden: "" });
+    parent.appendChild(plot);
+    parent.appendChild(note);
+    parent.appendChild(table);
+    var pane = { out: out, note: note, table: table, plot: function () { return Promise.resolve(null); } };
+    if (out.error) {
+      plot.className = "ex-plot is-empty";
+      plot.innerHTML = '<p class="ex-muted">This figure could not be drawn for this scenario (' + esc(out.error) + ").</p>";
+      return pane;
+    }
+    note.textContent = out.note || "";
+    if (!out.note) note.setAttribute("hidden", "");
+    if (out.html !== undefined) {
+      plot.className = "ex-plot is-html";
+      plot.removeAttribute("role");
+      plot.innerHTML = out.html;
+      return pane;
+    }
+    if (!out.traces.length) { plot.className = "ex-plot is-empty"; return pane; }
+    // The plot keeps the figure's own height. Plotly's responsive resize
+    // re-measures the div, and an embed resized while its plot was being
+    // drawn came out squeezed to the div's min-height.
+    if (typeof out.layout.height === "number") plot.style.height = out.layout.height + "px";
+    pane.plot = function () {
+      return window.Plotly.react(plot, out.traces, out.layout, { displaylogo: false, responsive: true,
+        modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d"], toImageButtonOptions: { filename: filename } });
+    };
+    return pane;
+  }
   function tableHTML(t) {
     if (!t || !t.columns || !t.columns.length) return '<p class="ex-muted">No table for this figure.</p>';
-    var num = function (v) { return /^[–\-+]?[\d,.\s]+%?$/.test(String(v)); };
+    var num = function (v) { return /^[–−\-+]?[\d,.\s]+%?$/.test(String(v)); };
     return '<table class="ex-table"><thead><tr>' + t.columns.map(function (c) { return "<th>" + esc(c) + "</th>"; }).join("") +
       "</tr></thead><tbody>" + t.rows.map(function (r) {
         return "<tr>" + r.map(function (v) { return '<td class="' + (num(v) ? "num" : "") + '">' + esc(v) + "</td>"; }).join("") + "</tr>";
@@ -402,12 +674,14 @@
   }
 
   // -- what each model shows ------------------------------------------------------
-  // The tiles above the figures, the tabs, the default zone and the columns
-  // of the scenario table. Section 7 is about Denmark inside a fixed
-  // neighbourhood; section 8 about the whole system under one budget.
+  // The headline numbers, the figures in groups (the first figure shown when
+  // none is asked for), the default zone and the columns of the scenario
+  // table. Section 7 is about Denmark inside a fixed neighbourhood; section
+  // 8 about the whole system under one budget.
   var VIEWS = {
     greenfield: {
       zone: "DK",
+      first: "capacity",
       tiles: [
         ["dk_net_cost", "Danish net cost", 1e9, 2, "bn EUR"],
         ["emissions_t", "Danish emissions", 1e6, 2, "Mt"],
@@ -419,7 +693,7 @@
         ["dk_net_import_mwh", "Net imports", 1e6, 1, "TWh"],
       ],
       tabs: [
-        ["overview", "Overview", ["capacity", "energy", "price-duration", "bill"]],
+        ["overview", "Overview", ["numbers", "capacity", "energy", "price-duration", "bill"]],
         ["operation", "Operation", ["dispatch", "setter", "heatmap", "storage", "inspector"]],
         ["money", "Money", ["recovery", "value", "bands", "screening", "levels"]],
         ["network", "Trade and emissions", ["map", "trade", "emissions", "abroad"]],
@@ -429,6 +703,7 @@
     },
     expansion: {
       zone: "ALL",
+      first: "capacity",
       tiles: [
         ["carbon_price", "Carbon price", 1, 0, "EUR/t"],
         ["system_cost", "System cost", 1e9, 1, "bn EUR"],
@@ -440,7 +715,7 @@
         ["grid_built_mw", "Interconnectors bought", 1e3, 1, "GW"],
       ],
       tabs: [
-        ["overview", "Overview", ["capacity", "built-by-zone", "energy", "price-duration"]],
+        ["overview", "Overview", ["numbers", "capacity", "built-by-zone", "energy", "price-duration"]],
         ["hydrogen", "Hydrogen", ["h2-balance", "h2-store", "electrolyser"]],
         ["operation", "Operation", ["dispatch", "storage", "heatmap", "inspector"]],
         ["network", "Grid, emissions and money", ["map", "grid", "emissions", "recovery"]],
@@ -451,72 +726,20 @@
     },
   };
   function viewOf(m) { return VIEWS[m] || VIEWS.greenfield; }
-
-  // -- KPI tiles ----------------------------------------------------------------
-  function tiles(list, rowS, rowC, cLabel) {
-    // The first four numbers, and the rest one click away. A comparison's
-    // name is said once, under the numbers, not in every tile.
-    var wrap = el("div", { class: "ex-numbers" });
-    var first = el("dl", { class: "ex-tiles" }), more = el("dl", { class: "ex-tiles" });
-    var shown = 0;
-    list.forEach(function (t) {
-      var v = rowS ? rowS[t[0]] : null;
-      if (v === null || v === undefined) return;
-      var html = "<dt>" + esc(t[1]) + "</dt><dd>" + U.fmt(v / t[2], t[3]) + ' <small class="ex-muted">' + t[4] + "</small>";
-      if (rowC && rowC[t[0]] !== null && rowC[t[0]] !== undefined) {
-        var dlt = (v - rowC[t[0]]) / t[2];
-        html += '<span class="ex-delta">' + (dlt >= 0 ? "+" : "−") + U.fmt(Math.abs(dlt), t[3]) + "</span>";
-      }
-      html += "</dd>";
-      (shown < 4 ? first : more).appendChild(el("div", { class: "ex-tile" }, html));
-      shown++;
-    });
-    wrap.appendChild(first);
-    if (rowC) wrap.appendChild(el("p", { class: "ex-muted ex-delta-note" }, "Under each number, the difference from " + esc(cLabel) + "."));
-    if (more.children.length) {
-      var d = el("details", { class: "ex-more" });
-      d.appendChild(el("summary", {}, "More numbers"));
-      d.appendChild(more);
-      wrap.appendChild(d);
-    }
-    return wrap;
+  function figureIds(view) {
+    return [].concat.apply([], view.tabs.map(function (t) { return t[2]; })).filter(function (id) { return F[id]; });
   }
 
   // -- views --------------------------------------------------------------------
-  function ctxFor(m, cat, sId, cId, sData, cData, q) {
+  function ctxFor(m, cat, sId, cId, sData, cData, q, rows) {
     var label = function (id) { var x = cat.scenarios.find(function (s) { return s.id === id; }); return x ? x.label : id; };
+    var row = function (id) { return (rows || []).find(function (x) { return x.id === id; }) || null; };
     var params = {};
     ["zone", "week", "yscale", "snap"].forEach(function (k) { if (q[k]) params[k] = q[k]; });
     U.allZones = cat.zones.map(function (z) { return z.id; });
+    var view = viewOf(m);
     return { model: m, cat: cat, s: sData, c: cData, sId: sId, cId: cId, sLabel: label(sId), cLabel: cId ? label(cId) : "", params: params,
-             zone: viewOf(m).zone };
-  }
-
-  // The figures as a short list, grouped as the model's view groups them;
-  // one figure on screen at a time.
-  function navTitle(id, ctx) {
-    var f = F[id], params = Object.assign({}, ctx.params);
-    if (!params.zone) params.zone = defaultZone(f, ctx);
-    var t = typeof f.title === "function" ? f.title(Object.assign({}, ctx, { params: params })) : f.title;
-    return t.split(":")[0];
-  }
-  function figureNav(view, ctx, figId, m, q) {
-    var nav = el("nav", { class: "ex-fignav", "aria-label": "Figures" });
-    view.tabs.forEach(function (t) {
-      var ids = t[2].filter(function (id) { return F[id]; });
-      if (!ids.length) return;
-      nav.appendChild(el("h3", {}, esc(t[1])));
-      var ul = el("ul", {});
-      ids.forEach(function (id) {
-        var attrs = { href: href(["m", m], Object.assign({}, q, { fig: id })) };
-        if (id === figId) { attrs.class = "is-current"; attrs["aria-current"] = "page"; }
-        var li = el("li", {});
-        li.appendChild(el("a", attrs, esc(navTitle(id, ctx))));
-        ul.appendChild(li);
-      });
-      nav.appendChild(ul);
-    });
-    return nav;
+             zone: view.zone, tiles: view.tiles, kpiS: row(sId), kpiC: cId ? row(cId) : null };
   }
 
   function viewBoard(m, q) {
@@ -525,47 +748,47 @@
       var sId = q.s || cat.reference, cId = q.c || "";
       var s = cat.scenarios.find(function (x) { return x.id === sId && x.available; });
       if (!s) { sId = cat.reference; s = cat.scenarios.find(function (x) { return x.id === sId; }); }
-      if (cId === sId) cId = "";
+      if (cId === sId || !cat.scenarios.some(function (x) { return x.id === cId && x.available; })) cId = "";
       return Promise.all([scenario(m, sId), cId ? scenario(m, cId) : null]).then(function (data) {
-        var ctx = ctxFor(m, cat, sId, cId, data[0], data[1], q);
         var view = viewOf(m);
-        var all = [].concat.apply([], view.tabs.map(function (t) { return t[2]; }));
-        var figId = q.fig && F[q.fig] && all.indexOf(q.fig) >= 0 ? q.fig : all[0];
-        // The scenario across the top; below it, the controls on the left
-        // and what they do on the right (RKB, 2026-10-13: the figure beside
-        // the controls, not under them).
+        var ctx = ctxFor(m, cat, sId, cId, data[0], data[1], q, rows);
+        var all = figureIds(view);
+        var figId = all.indexOf(q.fig) >= 0 ? q.fig : (all.indexOf(view.first) >= 0 ? view.first : all[0]);
+        // Keep what the reader had: the lists' scroll and the control in focus.
+        if (ui.model !== m) { ui.scroll = {}; ui.model = m; }
+        Array.prototype.forEach.call(main.querySelectorAll(".ex-sec-body"), function (b) { ui.scroll[b.id] = b.scrollTop; });
+        var focus = document.activeElement && document.activeElement.id;
         main.innerHTML = "";
         var page = el("div", { class: "ex-page" });
-        var head = el("header", { class: "ex-scen" });
-        head.appendChild(el("p", { class: "ex-eyebrow" }, esc(cat.title)));
-        head.appendChild(el("h1", {}, esc(s.label)));
-        head.appendChild(el("p", { class: "ex-desc" }, esc(s.description)));
-        head.appendChild(changedChips(cat, s, m, q));
-        page.appendChild(head);
+        page.appendChild(modelHeader(cat));
         var board = el("div", { class: "ex-split" });
         var left = el("aside", { class: "ex-left" });
-        left.appendChild(leverControls(cat, s, m, q));
-        left.appendChild(compareControl(cat, s, cId, m, q));
-        var figs = el("section", { class: "ex-ctl" });
-        figs.appendChild(el("h2", { class: "ex-ctl-label" }, "Figures"));
-        figs.appendChild(figureNav(view, ctx, figId, m, q));
-        left.appendChild(figs);
-        if (cat.about_html) {
-          var about = el("details", { class: "ex-about" });
-          about.appendChild(el("summary", {}, "About this model"));
-          about.appendChild(el("div", { class: "ex-about-body" }, cat.about_html));
-          left.appendChild(about);
-        }
+        left.appendChild(panel([
+          { key: "scenario", label: "Scenario", value: s.label, body: scenarioSection(cat, s, m, q) },
+          { key: "compare", label: "Compare with", value: cId ? ctx.cLabel : "Nothing", body: compareSection(cat, s, cId, m, q) },
+          { key: "figure", label: "Figure", value: navTitle(figId, ctx), body: figureSection(view, ctx, figId, m, q) },
+        ]));
         board.appendChild(left);
-        var right = el("section", { class: "ex-right" });
-        var rowS = rows.find(function (x) { return x.id === sId; }), rowC = cId ? rows.find(function (x) { return x.id === cId; }) : null;
-        right.appendChild(tiles(view.tiles, rowS, rowC, ctx.cLabel));
+        var right = el("section", { class: "ex-right", "aria-label": "Figure" });
         var card = figureCard(figId, ctx, { onParams: function (change) { go(["m", m], Object.assign({}, q, change), true); } });
-        card.classList.add("is-wide");
         right.appendChild(card);
         board.appendChild(right);
         page.appendChild(board);
         main.appendChild(page);
+        fitPanel();
+        Array.prototype.forEach.call(left.querySelectorAll(".ex-sec-body"), function (b) {
+          if (ui.scroll[b.id] !== undefined) b.scrollTop = ui.scroll[b.id];
+          else { var cur = b.querySelector(".is-current"); if (cur) reveal(cur, b); }   // the figure on screen
+        });
+        if (focus) {                                     // the lever just moved, still in hand and in view
+          var f = document.getElementById(focus);
+          if (f && f !== document.activeElement) {
+            f.focus({ preventScroll: true });
+            var box = f.closest(".ex-sec-body");
+            if (box) reveal(f.closest(".ex-lever") || f, box);
+          }
+        }
+        if (ui.toFigure) { ui.toFigure = false; card.scrollIntoView({ block: "start" }); }
       });
     });
   }
@@ -574,17 +797,18 @@
     var m = q.m || "greenfield";
     if (!F[id]) { main.innerHTML = "<p>No figure called " + esc(id) + ".</p>"; return Promise.resolve(); }
     if (q.embed) document.body.classList.add("is-embed");
-    return catalogue(m).then(function (cat) {
+    return Promise.all([catalogue(m), F[id].usesKpis ? kpis(m) : null]).then(function (r) {
+      var cat = r[0], rows = r[1];
       var sId = q.s || cat.reference, cId = q.c || "";
+      if (cId === sId) cId = "";
       return Promise.all([scenario(m, sId), cId ? scenario(m, cId) : null]).then(function (data) {
-        var ctx = ctxFor(m, cat, sId, cId, data[0], data[1], q);
+        var ctx = ctxFor(m, cat, sId, cId, data[0], data[1], q, rows);
         main.innerHTML = "";
         var card = figureCard(id, ctx, { embed: !!q.embed, onParams: function (change) {
           go(["figure", id], Object.assign({}, q, change), true); } });
-        card.classList.add("is-wide");
         if (!q.embed) {
           main.appendChild(el("p", { class: "ex-muted" }, esc(ctx.sLabel) + (cId ? " against " + esc(ctx.cLabel) : "") +
-            '. <a href="' + href(["m", m], { s: sId, c: cId }) + '">All figures for this scenario</a>'));
+            '. <a href="' + href(["m", m], Object.assign({ s: sId, c: cId, fig: id }, ctx.params)) + '">All figures for this scenario</a>'));
         }
         main.appendChild(card);
       });
@@ -629,10 +853,10 @@
       var l1 = el("label", {}, "Lever"); l1.appendChild(lsel);
       var l2 = el("label", {}, "Quantity"); l2.appendChild(msel);
       controls.appendChild(l1); controls.appendChild(l2);
-      lsel.addEventListener("change", function () { go(["m", m, "sweep"], { lever: lsel.value, metric: met.id, crossed: q.crossed, embed: q.embed }); });
-      msel.addEventListener("change", function () { go(["m", m, "sweep"], { lever: lever.id, metric: msel.value, crossed: q.crossed, embed: q.embed }); });
+      lsel.addEventListener("change", function () { go(["m", m, "sweep"], { lever: lsel.value, metric: met.id, crossed: q.crossed, embed: q.embed }, true); });
+      msel.addEventListener("change", function () { go(["m", m, "sweep"], { lever: lever.id, metric: msel.value, crossed: q.crossed, embed: q.embed }, true); });
       main.appendChild(controls);
-      var card = el("section", { class: "ex-fig is-wide" });
+      var card = el("section", { class: "ex-fig" });
       var plot = el("div", { class: "ex-plot", role: "img", "aria-label": met.label + " against " + lever.label });
       card.appendChild(plot);
       main.appendChild(card);
@@ -651,7 +875,7 @@
           hovertemplate: "%{x}: %{y:.3g}<extra>" + esc(families[k].name) + "</extra>" };
       });
       var refX = +lever.reference, logX = lever.axis === "log";
-      plot.style.height = "460px";    // as a figure's: see figureCard
+      plot.style.height = "460px";    // as a figure's: see mount
       window.Plotly.react(plot, traces, U.layout({ height: 460,
         xaxis: { title: U.axisTitle(lever.label + (lever.unit ? " (" + lever.unit + ")" : "") + (logX ? ", log scale" : "")),
                  type: logX ? "log" : "linear" },
@@ -663,10 +887,10 @@
       plot.on("plotly_click", function (ev) {
         var id = ev.points[0].customdata;
         if (!id) return;
-        if (q.embed) window.open(href(["m", m], { s: id, c: cat.reference }), "_blank", "noopener");
-        else go(["m", m], { s: id, c: cat.reference });
+        if (q.embed) window.open(href(["m", m], { s: id }), "_blank", "noopener");
+        else go(["m", m], { s: id });
       });
-      card.appendChild(el("p", { class: "ex-muted" }, "Click a point to open that scenario, compared with the reference."));
+      card.appendChild(el("p", { class: "ex-muted" }, "Click a point to open that scenario."));
       var tbl = { columns: [lever.label].concat(famKeys.map(function (k) { return families[k].name; })), rows: [] };
       var xs = {};
       famKeys.forEach(function (k) { families[k].pts.forEach(function (p) { xs[p.x] = 1; }); });
@@ -708,7 +932,7 @@
       cat.scenarios.forEach(function (s) {
         var rw = rows.find(function (x) { return x.id === s.id; });
         if (!rw) return;
-        html += '<tr class="' + (s.id === cat.reference ? "is-current" : "") + '"><td><a href="' + href(["m", m], { s: s.id, c: s.id === cat.reference ? "" : cat.reference }) + '">' + esc(s.label) + "</a></td>" +
+        html += '<tr class="' + (s.id === cat.reference ? "is-current" : "") + '"><td><a href="' + href(["m", m], { s: s.id }) + '">' + esc(s.label) + "</a></td>" +
           mets.map(function (x) { var v = rw[x.id]; return '<td class="num">' + (v === null || v === undefined ? "–" : U.fmt(v / (x.scale || 1), x.scale === 0.01 ? 1 : 2)) + "</td>"; }).join("") + "</tr>";
       });
       html += "</tbody></table></div>";
@@ -743,8 +967,12 @@
     nav.innerHTML = links.join("");
   }
 
+  // A new view starts at the top; a change within a view keeps the window
+  // where it is.
   function render() {
-    var r = route(), p = r.parts, job;
+    var r = route(), p = r.parts, job, path = p.join("/");
+    var samePage = path === ui.path;
+    ui.path = path;
     document.body.classList.toggle("is-embed", !!r.q.embed);
     setNav(p[0] === "m" ? p[1] : p[0] === "figure" ? (r.q.m || "greenfield") : null);
     if (!p.length) job = viewHome();
@@ -753,7 +981,11 @@
     else if (p[0] === "m" && p[1] && p[2] === "table") job = viewTable(p[1], r.q);
     else if (p[0] === "m" && p[1]) job = viewBoard(p[1], r.q);
     else job = viewHome();
-    Promise.resolve(job).catch(function (e) {
+    Promise.resolve(job).then(function () {
+      if (!samePage) window.scrollTo(0, 0);
+      else if (ui.restoreY !== null) window.scrollTo(0, ui.restoreY);
+      ui.restoreY = null;
+    }).catch(function (e) {
       main.innerHTML = '<p>Something went wrong loading this view: ' + esc(e.message) + "</p>";
     });
   }

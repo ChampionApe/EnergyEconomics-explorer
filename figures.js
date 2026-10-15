@@ -9,6 +9,12 @@
  * measures stacks two panels on a shared time axis; the comparison
  * scenario is drawn dashed or faded, the scenario itself solid.
  *
+ * Comparing (RKB, 2026-10-15: every figure compares). A figure that draws
+ * the comparison itself says `compare: "overlay"`. Any other is drawn twice
+ * by explorer.js, once per scenario, with the same scales, colours and
+ * order of rows; `pairParams` names what the two drawings must share (the
+ * week of a dispatch, the hour inspected).
+ *
  * A key line `  "id": { // figure` is how build.py finds the figure ids, to
  * check the Lab's embeds against them. Keep that form.
  */
@@ -114,6 +120,17 @@
   U.fmt = function (x, digits) {
     if (x === null || x === undefined || !isFinite(x)) return "–";
     return Number(x).toLocaleString("en-GB", { minimumFractionDigits: digits || 0, maximumFractionDigits: digits || 0 });
+  };
+  // A number with the decimals its size calls for: 928, 53.3, 2.35.
+  U.sig = function (x) {
+    if (x === null || x === undefined || !isFinite(x)) return "–";
+    var a = Math.abs(x);
+    return U.fmt(x, a >= 100 ? 0 : a >= 10 ? 1 : 2);
+  };
+  U.esc = function (s) {
+    return String(s === undefined || s === null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
   };
   U.tableRows = function (rows) { return rows; };
   U.weekRange = function (d, week) {
@@ -341,8 +358,62 @@
     return out;
   }
 
+  // The zone and segment the inspector shows: by the snap control, or, in
+  // a comparison, the segment that holds the moment `at`. The segments of
+  // two scenarios differ when their weather or time resolution does; every
+  // scenario's year starts on the same date.
+  function inspected(ctx) {
+    var d = ctx.s, zone = ctx.params.zone;
+    if (!zone || U.zonesFor(zone).length > 1) zone = ctx.zone === "ALL" ? "DE" : "DK2";
+    var n = U.n(d), price = U.price(d, zone), i = ctx.params.snap;
+    if (ctx.params.at) {
+      var at = Date.parse(ctx.params.at), times = U.times(d);
+      i = 0;
+      for (var k = 0; k < n; k++) if (times[k].getTime() <= at) i = k;
+    }
+    else if (i === "dear" || i === undefined || i === "") i = price.indexOf(Math.max.apply(null, price));
+    else if (i === "cheap") i = price.indexOf(Math.min.apply(null, price));
+    else i = Math.min(Math.max(+i || 0, 0), n - 1);
+    return { zone: zone, price: price, i: i };
+  }
+
   // -- the figures ---------------------------------------------------------------
   var F = {
+
+  // The headline numbers, as one of the figures rather than above them all
+  // (RKB, 2026-10-15). The page passes the scenario's row of kpis.json
+  // (ctx.kpiS, ctx.kpiC) and the model's choice of numbers (ctx.tiles).
+  "numbers": { // figure
+    title: "Headline numbers",
+    shows: "The scenario's main results. The table lists every quantity the sweeps offer.",
+    controls: [],
+    compare: "overlay",
+    usesKpis: true,
+    draw: function (ctx) {
+      var rowS = ctx.kpiS || {}, rowC = ctx.c ? ctx.kpiC : null;
+      var has = function (row, k) { return !!row && row[k] !== null && row[k] !== undefined; };
+      var sign = function (x) { return x < 0 ? "−" : "+"; };
+      var tiles = (ctx.tiles || []).filter(function (t) { return has(rowS, t[0]); }).map(function (t) {
+        var v = rowS[t[0]] / t[2];
+        var html = '<div class="ex-tile"><dt>' + U.esc(t[1]) + '</dt><dd><span class="ex-tile-value">' + U.fmt(v, t[3]) +
+          '</span> <span class="ex-tile-unit">' + U.esc(t[4]) + "</span>";
+        if (has(rowC, t[0])) {
+          var w = rowC[t[0]] / t[2];
+          html += '<span class="ex-delta">' + sign(v - w) + U.fmt(Math.abs(v - w), t[3]) + " from " + U.fmt(w, t[3]) + "</span>";
+        }
+        return html + "</dd></div>";
+      });
+      var rows = (ctx.cat.metrics || []).filter(function (x) { return has(rowS, x.id) || has(rowC, x.id); }).map(function (x) {
+        var a = has(rowS, x.id) ? rowS[x.id] / (x.scale || 1) : null, b = has(rowC, x.id) ? rowC[x.id] / (x.scale || 1) : null;
+        var row = [x.label, x.unit, U.sig(a)];
+        if (rowC) row.push(U.sig(b), a !== null && b !== null ? sign(a - b) + U.sig(Math.abs(a - b)) : "–");
+        return row;
+      });
+      return { html: '<dl class="ex-tiles">' + tiles.join("") + "</dl>",
+        table: { columns: ["Quantity", "Unit", ctx.sLabel].concat(rowC ? [ctx.cLabel, "Difference"] : []), rows: rows },
+        note: rowC ? "Under each number, the change from " + ctx.cLabel + "." : "" };
+    },
+  },
 
   "capacity": { // figure
     title: function (ctx) {
@@ -353,6 +424,7 @@
         (ctx.zone === "ALL" ? " Electrolysers in MW of electricity drawn, reformers in MW of hydrogen made." : "");
     },
     controls: ["zone"],
+    compare: "overlay",
     draw: function (ctx) {
       var zones = U.zonesFor(ctx.params.zone || "DK");
       var cat = ctx.cat, runs = U.runs(ctx), traces = [], rows = [];
@@ -410,6 +482,7 @@
         : "A year's generation by technology, against demand served, demand left unserved and net trade.";
     },
     controls: ["zone"],
+    compare: "overlay",
     draw: function (ctx) {
       var zone = ctx.params.zone || "DK";
       var cat = ctx.cat, runs = U.runs(ctx), traces = [], rows = [];
@@ -459,6 +532,7 @@
     title: "The price-duration curve",
     shows: "Every hour of the year, sorted from the highest price to the lowest.",
     controls: ["zone", "yscale"],
+    compare: "overlay",
     wide: false,
     draw: function (ctx) {
       var zone = ctx.params.zone || "DK1";
@@ -499,6 +573,8 @@
     shows: "What ran, hour by hour, against demand; net imports below; the price at the bottom.",
     controls: ["zone", "week"],
     wide: true,
+    // Compared, both drawings show the same week: the one chosen for this scenario.
+    pairParams: function (ctx) { return { week: String(weekOf(ctx)) }; },
     draw: function (ctx) {
       var d = ctx.s, cat = ctx.cat, zone = ctx.params.zone || "DK";
       var week = weekOf(ctx), ix = U.weekRange(d, week);
@@ -561,13 +637,9 @@
       traces.push({ type: "bar", name: "Net imports", x: t, y: netimp.map(function (v) { return v / 1e3; }),
         marker: { color: U.css("--muted") }, yaxis: "y2", showlegend: false,
         hovertemplate: "%{y:.2f} GW<extra>Net imports (exports below zero)</extra>" });
-      U.runs(ctx).slice().reverse().forEach(function (r) {
-        var pr = U.price(r.d, zone);
-        var rx = r.main ? ix : U.weekRange(r.d, week);
-        traces.push({ type: "scatter", mode: "lines", name: "Price, " + r.label, x: U.pick(U.times(r.d), rx), y: U.pick(pr, rx),
-          line: { shape: "hv", width: r.main ? 2 : 1.6, color: r.main ? U.css("--ink") : U.css("--accent"), dash: r.main ? "solid" : "dash" },
-          yaxis: "y3", showlegend: !!ctx.c, hovertemplate: "%{y:.1f} EUR/MWh<extra>" + r.label + "</extra>" });
-      });
+      traces.push({ type: "scatter", mode: "lines", name: "Price", x: t, y: U.pick(U.price(d, zone), ix),
+        line: { shape: "hv", width: 2, color: U.css("--ink") }, yaxis: "y3", showlegend: false,
+        hovertemplate: "%{y:.1f} EUR/MWh<extra>Price</extra>" });
       var rows = ix.map(function (i) {
         return [U.times(d)[i].toISOString().slice(0, 16).replace("T", " "), U.fmt(U.price(d, zone)[i], 1),
                 U.fmt(U.zoneSum(d, "load", zone)[i]), U.fmt(U.zoneSum(d, "netimp", zone)[i])];
@@ -761,6 +833,7 @@
     title: "What Denmark's system costs",
     shows: "The year's capital and operating cost of what Denmark builds, by technology, less what it earns abroad.",
     controls: [],
+    compare: "overlay",
     draw: function (ctx) {
       var cat = ctx.cat, traces = [], rows = [];
       var runs = U.runs(ctx);
@@ -950,6 +1023,7 @@
     title: "Where the emissions are",
     shows: "Annual CO2 by zone; with a comparison, the change in each zone.",
     controls: [],
+    compare: "overlay",
     draw: function (ctx) {
       var z = ctx.s.tables.zones, y = z.map(function (r) { return r.zone; }), traces = [], rows = [];
       if (ctx.c) {
@@ -997,7 +1071,8 @@
       });
       return { traces: traces, layout: U.layout({ barmode: "stack", height: 420, yaxis: { autorange: "reversed" },
           xaxis: { title: U.axisTitle("GW built") } }),
-        table: { columns: ["Zone", "GW built"], rows: rows } };
+        table: { columns: ["Zone", "GW built"], rows: rows },
+        note: traces.length ? "" : "Nothing is built outside Denmark in this scenario." };
     },
   },
 
@@ -1007,14 +1082,11 @@
     controls: ["zone", "snap"],
     singleZone: true,
     wide: true,
+    // Compared, both drawings show the same moment of the year: the
+    // segment chosen in this scenario, and the one holding its start in the other.
+    pairParams: function (ctx) { return { at: U.times(ctx.s)[inspected(ctx).i].toISOString() }; },
     draw: function (ctx) {
-      var d = ctx.s, cat = ctx.cat, zone = ctx.params.zone;
-      if (!zone || U.zonesFor(zone).length > 1) zone = ctx.zone === "ALL" ? "DE" : "DK2";
-      var n = U.n(d), price = U.price(d, zone);
-      var i = ctx.params.snap;
-      if (i === "dear" || i === undefined || i === "") i = price.indexOf(Math.max.apply(null, price));
-      else if (i === "cheap") i = price.indexOf(Math.min.apply(null, price));
-      else i = Math.min(Math.max(+i || 0, 0), n - 1);
+      var d = ctx.s, cat = ctx.cat, n = U.n(d), at = inspected(ctx), zone = at.zone, price = at.price, i = at.i;
       var cap = capTable(d, [zone]), items = [];
       Object.keys(cap).forEach(function (t) {
         // Storage, conversion and the hydrogen turbine have no running cost
@@ -1064,6 +1136,7 @@
     title: "Capacity built, by zone",
     shows: "New capacity in each zone, by technology group. Electrolysers count the electricity they can draw; stores and reformers are left out.",
     controls: [],
+    compare: "overlay",
     draw: function (ctx) {
       var cat = ctx.cat, traces = [], rows = [];
       var zones = U.allZones.filter(function (z) { return ctx.s.tables.zones.some(function (r) { return r.zone === z; }); });
@@ -1104,6 +1177,7 @@
     title: function (ctx) { return "Hydrogen supply and use: " + U.zoneName(ctx.cat, ctx.params.zone || "ALL"); },
     shows: "A year's hydrogen, in TWh of hydrogen: made from natural gas, imported or electrolysed, and used by industry or burnt back into electricity.",
     controls: ["zone"],
+    compare: "overlay",
     draw: function (ctx) {
       var cat = ctx.cat, zones = U.zonesFor(ctx.params.zone || "ALL"), runs = U.runs(ctx), traces = [];
       function sums(d) {
@@ -1144,6 +1218,7 @@
     title: function (ctx) { return "Hydrogen in store through the year: " + U.zoneName(ctx.cat, ctx.params.zone || "ALL"); },
     shows: "Hydrogen held in salt caverns and steel tanks through the year, in TWh of hydrogen; below, the electricity the electrolysers draw.",
     controls: ["zone"],
+    compare: "overlay",
     wide: true,
     draw: function (ctx) {
       var d = ctx.s, cat = ctx.cat, zone = ctx.params.zone || "ALL", t = U.times(d), traces = [];
@@ -1190,6 +1265,7 @@
     title: function (ctx) { return "Electrolysers against the electricity price: " + U.zoneName(ctx.cat, ctx.params.zone || "DE"); },
     shows: "Each point is one segment of the year: the electricity price, and the share of the electrolysers' capacity that ran. Larger points stand for longer segments.",
     controls: ["zone"],
+    compare: "overlay",
     draw: function (ctx) {
       var cat = ctx.cat, zone = ctx.params.zone || "DE", zones = U.zonesFor(zone), traces = [];
       function stats(d) {
@@ -1235,6 +1311,7 @@
     title: "Interconnectors bought",
     shows: "For each corridor the model may reinforce: the capacity it bought, against the most it was allowed to buy. Today's capacity is in the table.",
     controls: [],
+    compare: "overlay",
     draw: function (ctx) {
       var byId = function (d) { var o = {}; (d.tables.corridors || []).forEach(function (r) { o[r.id] = r; }); return o; };
       var S = byId(ctx.s), C = ctx.c ? byId(ctx.c) : {};
