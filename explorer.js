@@ -710,7 +710,7 @@
         ["emissions_total_t", "Emissions", 1e6, 1, "Mt"],
         ["all_cap_battery_mw", "Batteries", 1e3, 1, "GW"],
         ["all_cap_electrolyser_mw", "Electrolysers", 1e3, 1, "GW"],
-        ["h2_store_mwh", "Hydrogen store", 1e6, 1, "TWh"],
+        ["h2_store_mwh", "Hydrogen storage", 1e6, 1, "TWh"],
         ["all_cap_h2_turbine_mw", "Hydrogen turbines", 1e3, 1, "GW"],
         ["grid_built_mw", "Interconnectors bought", 1e3, 1, "GW"],
       ],

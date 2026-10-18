@@ -964,7 +964,7 @@
 
   "trade": { // figure
     title: "Trade and congestion",
-    shows: "For each corridor touching Denmark: the hours it runs full in each direction, and the rent it collects.",
+    shows: "For each interconnector touching Denmark: the hours it runs full in each direction, and the rent it collects.",
     controls: [],
     draw: function (ctx) {
       var c = ctx.s.tables.corridors.filter(function (r) { return DK.indexOf(r.a) >= 0 || DK.indexOf(r.b) >= 0; });
@@ -977,7 +977,7 @@
             customdata: c.map(function (r) { return r.hours_congested_ba; }) }],
         layout: U.layout({ barmode: "relative", height: 90 + 34 * y.length, yaxis: { autorange: "reversed" },
           xaxis: { title: U.axisTitle("Hours a year at full capacity (left: towards the first zone)"), zeroline: true, zerolinecolor: U.css("--axis") } }),
-        table: { columns: ["Corridor", "Capacity, MW", "Hours full →", "Hours full ←", "Net flow →, TWh", "Rent, m EUR"],
+        table: { columns: ["Interconnector", "Capacity, MW", "Hours full →", "Hours full ←", "Net flow →, TWh", "Rent, m EUR"],
           rows: c.map(function (r) { return [r.a + " – " + r.b, U.fmt(r.cap_ab_mw), U.fmt(r.hours_congested_ab), U.fmt(r.hours_congested_ba),
             U.fmt((r.flow_ab_mwh - r.flow_ba_mwh) / 1e6, 2), U.fmt(r.rent_eur / 1e6, 0)]; }) } };
     },
@@ -985,7 +985,7 @@
 
   "map": { // figure
     title: "The system at a glance",
-    shows: "The twelve zones: colour is the average price, size the demand; lines are corridors, darker when more often full.",
+    shows: "The twelve zones: colour is the average price, size the demand; lines are interconnectors, darker when more often full.",
     controls: [],
     wide: false,
     draw: function (ctx) {
@@ -1134,7 +1134,7 @@
 
   "built-by-zone": { // figure
     title: "Capacity built, by zone",
-    shows: "New capacity in each zone, by technology group. Electrolysers count the electricity they can draw; stores and reformers are left out.",
+    shows: "New capacity in each zone, by technology group. Electrolysers count the electricity they can draw; storage and reformers are left out.",
     controls: [],
     compare: "overlay",
     draw: function (ctx) {
@@ -1209,7 +1209,7 @@
         layout: U.layout({ barmode: "group", height: 90 + 40 * cats.length * (ctx.c ? 1.5 : 1), yaxis: { autorange: "reversed" },
           xaxis: { title: U.axisTitle("TWh of hydrogen a year"), rangemode: "tozero" } }),
         table: { columns: ["Zone", "Industry, TWh", "From gas, TWh", "Imported, TWh", "Electrolysed, TWh", "Burnt for electricity, TWh",
-          "Electrolysers, GW", "Electrolyser full-load hours", "Store, TWh", "Average hydrogen price, EUR/MWh"], rows: rows },
+          "Electrolysers, GW", "Electrolyser full-load hours", "Storage, TWh", "Average hydrogen price, EUR/MWh"], rows: rows },
         note: none ? "This scenario has no hydrogen sector." : "Only zones with an industrial hydrogen demand have a hydrogen sector, and hydrogen cannot move between zones." };
     },
   },
@@ -1233,7 +1233,7 @@
       });
       if (ctx.c) {
         var tc = U.add(U.zoneSum(ctx.c, "soc", zone, STORES[0]), U.zoneSum(ctx.c, "soc", zone, STORES[1]));
-        traces.push({ type: "scatter", mode: "lines", name: "All stores, " + ctx.cLabel, x: U.times(ctx.c),
+        traces.push({ type: "scatter", mode: "lines", name: "All storage, " + ctx.cLabel, x: U.times(ctx.c),
           y: tc.map(function (v) { return v / 1e6; }), line: { shape: "hv", width: 1.6, color: U.css("--accent"), dash: "dash" },
           yaxis: "y", hovertemplate: "%{y:.2f} TWh<extra>" + ctx.cLabel + "</extra>" });
       }
@@ -1256,8 +1256,8 @@
         layout: U.layout({ height: 440, hovermode: "x unified",
           yaxis: { domain: [0.38, 1], title: U.axisTitle("Hydrogen held, TWh"), rangemode: "tozero" },
           yaxis2: { domain: [0, 0.3], title: U.axisTitle("Electrolysers, GW"), rangemode: "tozero" }, xaxis: { anchor: "y2" } }),
-        table: { columns: ["Zone", "Store, TWh", "Fullest, TWh", "on", "Emptiest, TWh", "on"], rows: rows },
-        note: rows.length ? "" : "No hydrogen store is built in this scenario." };
+        table: { columns: ["Zone", "Storage, TWh", "Fullest, TWh", "on", "Emptiest, TWh", "on"], rows: rows },
+        note: rows.length ? "" : "No hydrogen storage is built in this scenario." };
     },
   },
 
@@ -1309,7 +1309,7 @@
 
   "grid": { // figure
     title: "Interconnectors bought",
-    shows: "For each corridor the model may reinforce: the capacity it bought, against the most it was allowed to buy. Today's capacity is in the table.",
+    shows: "For each interconnector the model may reinforce: the capacity it bought, against the most it was allowed to buy. Today's capacity is in the table.",
     controls: [],
     compare: "overlay",
     draw: function (ctx) {
@@ -1337,13 +1337,13 @@
         if (ctx.c) row.push(U.fmt(C[k] ? C[k].new_mw || 0 : 0));
         return row;
       });
-      var cols = ["Corridor", "Today's capacity, MW", "Bought, MW", "Most it may buy, MW", "Hours full →", "Hours full ←", "Rent, m EUR"];
+      var cols = ["Interconnector", "Today's capacity, MW", "Bought, MW", "Most it may buy, MW", "Hours full →", "Hours full ←", "Rent, m EUR"];
       if (ctx.c) cols.push("Bought in " + ctx.cLabel + ", MW");
       return { traces: ids.length ? traces : [],
         layout: U.layout({ barmode: "group", height: 90 + 30 * ids.length * (ctx.c ? 1.6 : 1), yaxis: { autorange: "reversed" },
           xaxis: { title: U.axisTitle("GW"), rangemode: "tozero" } }),
         table: { columns: cols, rows: rows },
-        note: ids.length ? "Today's capacity includes the reinforcements already committed." : "No corridor can be reinforced in this scenario." };
+        note: ids.length ? "Today's capacity includes the reinforcements already committed." : "No interconnector can be reinforced in this scenario." };
     },
   },
 
