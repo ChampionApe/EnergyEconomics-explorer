@@ -672,8 +672,10 @@
         b.months[t[i].getUTCMonth()] += w[i]; b.hours += w[i]; b.euros += w[i] * price[i];
       }
       var shown = MARGINAL.filter(function (c) { return by[c.id].hours > 0; });
+      // The legend carries each category's hours a year, so the totals can be
+      // read without the table.
       var traces = shown.map(function (c) {
-        return { type: "bar", name: c.label, x: MONTHS, y: by[c.id].months,
+        return { type: "bar", name: c.label + ": " + U.fmt(by[c.id].hours, 0) + " h a year", x: MONTHS, y: by[c.id].months,
           marker: { color: c.color(ctx.cat), line: { width: 1, color: U.css("--card") } },
           hovertemplate: "%{x}: %{y:.0f} hours<extra>" + c.label + "</extra>" };
       });
@@ -784,21 +786,27 @@
     controls: [],
     draw: function (ctx) {
       var cat = ctx.cat, v = ctx.s.tables.value || [], traces = [], rows = [];
-      var y = v.map(function (r) { return U.techLabel(cat, r.tech); });
+      // Each technology's full-load hours and value factor under its name,
+      // so they can be read without the table.
+      var names = v.map(function (r) { return U.techLabel(cat, r.tech); });
+      var y = v.map(function (r) {
+        return U.techLabel(cat, r.tech) + '<br><span style="font-size:10.5px">' + U.fmt(r.full_load_hours, 0) +
+          " full-load h · value factor " + U.fmt(r.value_factor, 2) + "</span>";
+      });
       traces.push({ type: "scatter", mode: "markers", name: "Levelised cost, carbon included", y: y,
         x: v.map(function (r) { return r.lcoe_eur_mwh + r.carbon_cost_eur_mwh; }),
         marker: { symbol: "line-ns-open", size: 22, color: U.css("--ink"), line: { width: 2.5 } },
-        hovertemplate: "%{y}: levelised cost %{x:.1f} EUR/MWh<extra></extra>" });
+        customdata: names, hovertemplate: "%{customdata}: levelised cost %{x:.1f} EUR/MWh<extra></extra>" });
       traces.push({ type: "scatter", mode: "markers", name: "Capture price", y: y,
         x: v.map(function (r) { return r.capture_price_eur_mwh; }),
         marker: { size: 12, color: v.map(function (r) { return U.techColor(cat, r.tech); }), line: { width: 2, color: U.css("--card") } },
-        hovertemplate: "%{y}: capture price %{x:.1f} EUR/MWh<extra></extra>" });
+        customdata: names, hovertemplate: "%{customdata}: capture price %{x:.1f} EUR/MWh<extra></extra>" });
       v.forEach(function (r) {
         rows.push([U.techLabel(cat, r.tech), U.fmt(r.full_load_hours, 0), U.fmt(r.lcoe_eur_mwh + r.carbon_cost_eur_mwh, 1),
                    U.fmt(r.capture_price_eur_mwh, 1), U.fmt(r.value_factor, 2)]);
       });
       return { traces: traces,
-        layout: U.layout({ height: 90 + 40 * y.length, yaxis: { autorange: "reversed" },
+        layout: U.layout({ height: 90 + 50 * y.length, yaxis: { autorange: "reversed" },
           xaxis: { title: U.axisTitle("EUR/MWh"), rangemode: "tozero" } }),
         table: { columns: ["Technology", "Full-load hours", "Levelised cost, EUR/MWh", "Capture price, EUR/MWh", "Value factor"], rows: rows } };
     },
