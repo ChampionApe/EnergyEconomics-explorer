@@ -213,8 +213,10 @@
     var out = {};
     d.tables.capacity.forEach(function (r) {
       if (zones.indexOf(r.zone) < 0) return;
-      var e = out[r.tech] || (out[r.tech] = { built: 0, existing: 0, max: 0, hasMax: false, mwh: 0, mc: r.marginal_cost, mw: 0 });
+      var e = out[r.tech] || (out[r.tech] = { built: 0, existing: 0, max: 0, hasMax: false, mwh: 0, mc: r.marginal_cost, mw: 0, avail: 0 });
       e.built += r.built_mw; e.existing += r.existing_mw;
+      // What can run in any hour: the outage derating, where it is static.
+      e.avail += (r.built_mw + r.existing_mw) * (r.available_pu === null || r.available_pu === undefined ? 1 : r.available_pu);
       if (r.max_mw !== null && r.max_mw !== undefined) { e.max += r.max_mw; e.hasMax = true; }
       e.mwh += r.energy_mwh || 0;
       var mw = r.built_mw + r.existing_mw;
@@ -1078,7 +1080,7 @@
 
   "inspector": { // figure
     title: "One hour, inspected",
-    shows: "Everything that could run in one zone in one segment of the year, sorted by running cost, with what did run and the price.",
+    shows: "Everything that could run in one zone in one segment of the year, sorted by running cost, with what did run and the price. What could run is the capacity less outages for thermal plants, and the segment's wind, sun or river flow for the rest.",
     controls: ["zone", "snap"],
     singleZone: true,
     wide: true,
@@ -1094,9 +1096,11 @@
         // draw on.
         if (t.indexOf("battery") === 0 || CONVERSION.indexOf(t) >= 0 || t === "h2_turbine" ||
             cap[t].built + cap[t].existing < 1) return;
-        var avail = d.series["avail|" + zone + "|" + t] ? d.series["avail|" + zone + "|" + t][i] : cap[t].built + cap[t].existing;
+        // A thermal plant could run at its capacity less its outage derating,
+        // so one running flat out fills its bar.
+        var avail = d.series["avail|" + zone + "|" + t] ? d.series["avail|" + zone + "|" + t][i] : cap[t].avail;
         var gen = d.series["gen|" + zone + "|" + t] ? d.series["gen|" + zone + "|" + t][i] : 0;
-        items.push({ t: t, mc: cap[t].mc, avail: avail, gen: gen });
+        items.push({ t: t, mc: cap[t].mc, avail: avail, gen: gen, installed: cap[t].built + cap[t].existing });
       });
       var bat = 0, batAvail = 0;
       ["battery_2h", "battery_4h", "battery_8h"].forEach(function (b) {
@@ -1113,7 +1117,8 @@
       var traces = [
         { type: "bar", orientation: "h", name: "Could have run", y: y, x: items.map(function (it) { return it.avail / 1e3; }),
           marker: { color: items.map(function (it) { return U.techColor(cat, it.t); }), opacity: 0.3 },
-          hovertemplate: "%{y}: %{x:.2f} GW available<extra></extra>" },
+          customdata: items.map(function (it) { return it.installed === undefined ? it.avail / 1e3 : it.installed / 1e3; }),
+          hovertemplate: "%{y}: %{x:.2f} GW available of %{customdata:.2f} GW installed<extra></extra>" },
         { type: "bar", orientation: "h", name: "Ran", y: y, x: items.map(function (it) { return it.gen / 1e3; }),
           marker: { color: items.map(function (it) { return U.techColor(cat, it.t); }) },
           hovertemplate: "%{y}: %{x:.2f} GW ran<extra></extra>" }];

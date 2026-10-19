@@ -189,9 +189,12 @@
 
   // The group a scenario belongs to in a menu: that of the first lever it
   // moves, in the catalogue's order.
+  // A crossed scenario (no batteries at 150 EUR/t) belongs with the choice
+  // it varies (no batteries), not with the sweep it is crossed with.
   function scenarioGroup(cat, x) {
     var moved = movedLevers(cat, x);
-    return moved.length ? moved[0].group : "Reference";
+    var choice = moved.find(function (l) { return l.kind !== "sweep"; });
+    return choice ? choice.group : moved.length ? moved[0].group : "Reference";
   }
 
   // -- the model page ------------------------------------------------------------
