@@ -176,7 +176,8 @@
     } else {
       input = el("select", { id: id });
       opts.forEach(function (v) {
-        var o = el("option", { value: String(v) }, esc(fmtLever(l, v)));
+        var target = findScenario(cat, s, l.id, v);
+        var o = el("option", { value: String(v), title: target ? target.description || "" : "" }, esc(fmtLever(l, v)));
         if (String(v) === String(cur)) o.selected = true;
         input.appendChild(o);
       });
@@ -199,11 +200,17 @@
 
   // -- the model page ------------------------------------------------------------
 
+  // A model explored in a lecture's workshop is named after it: "Lecture 6:
+  // Building Denmark's power system from scratch" (RKB, 2026-10-20).
+  function modelTitle(x) {
+    return (x.lecture ? "Lecture " + x.lecture + ": " : "") + x.title;
+  }
+
   // One title, the Explorer's short summary of the model
   // (lab/models/<model>.summary.md), and its whole description one click away.
   function modelHeader(cat) {
     var head = el("header", { class: "ex-model" });
-    head.appendChild(el("h1", {}, esc(cat.title)));
+    head.appendChild(el("h1", {}, esc(modelTitle(cat))));
     var p = el("p", { class: "ex-intro" }, cat.intro_html || "");
     if (cat.about_html) {
       var dialog = aboutDialog(cat);
@@ -371,7 +378,7 @@
     order.forEach(function (g) {
       var og = el("optgroup", { label: g });
       groups[g].forEach(function (x) {
-        var o = el("option", { value: x.id }, esc(x.label));
+        var o = el("option", { value: x.id, title: x.description || "" }, esc(x.label));
         if (x.id === cId) o.selected = true;
         og.appendChild(o);
       });
@@ -379,6 +386,11 @@
     });
     sel.addEventListener("change", function () { if (sel.value) go(["m", m], Object.assign({}, q, { s: s.id, c: sel.value }), true); });
     box.appendChild(sel);
+    // What the comparison is, as the scenario above says what it is.
+    var cmp = cId && cat.scenarios.find(function (x) { return x.id === cId; });
+    if (cmp && cmp.description) {
+      box.appendChild(el("p", { class: "ex-sec-desc ex-compare-desc" }, "<strong>" + esc(cmp.label) + ".</strong> " + esc(cmp.description)));
+    }
     box.appendChild(el("p", { class: "ex-hint" },
       "A figure that can hold both scenarios draws the comparison faded or dashed. Any other is drawn twice, this scenario first, on the same scales."));
     return box;
@@ -915,7 +927,7 @@
       var mets = cols.map(function (c) { return cat.metrics.find(function (x) { return x.id === c; }); }).filter(Boolean);
       main.innerHTML = "";
       main.appendChild(el("h1", {}, "Every scenario"));
-      main.appendChild(el("p", { class: "ex-desc" }, "One row per solved scenario. Click a name to open it. The download gives every quantity the sweeps offer, as a CSV file for a spreadsheet."));
+      main.appendChild(el("p", { class: "ex-desc" }, "One row per solved scenario, with what it changes. Click a name to open it. The download gives every quantity the sweeps offer, as a CSV file for a spreadsheet."));
       var dl = el("button", { class: "btn-ex", type: "button" }, "Download as CSV");
       dl.addEventListener("click", function () {
         var all = cat.metrics;
@@ -935,7 +947,8 @@
       cat.scenarios.forEach(function (s) {
         var rw = rows.find(function (x) { return x.id === s.id; });
         if (!rw) return;
-        html += '<tr class="' + (s.id === cat.reference ? "is-current" : "") + '"><td><a href="' + href(["m", m], { s: s.id }) + '">' + esc(s.label) + "</a></td>" +
+        html += '<tr class="' + (s.id === cat.reference ? "is-current" : "") + '"><td class="ex-scen-cell"><a href="' + href(["m", m], { s: s.id }) + '">' + esc(s.label) + "</a>" +
+          (s.description ? '<div class="ex-scen-desc">' + esc(s.description) + "</div>" : "") + "</td>" +
           mets.map(function (x) { var v = rw[x.id]; return '<td class="num">' + (v === null || v === undefined ? "–" : U.fmt(v / (x.scale || 1), x.scale === 0.01 ? 1 : 2)) + "</td>"; }).join("") + "</tr>";
       });
       html += "</tbody></table></div>";
@@ -951,7 +964,7 @@
       main.appendChild(el("p", { class: "ex-desc" }, "The models of the lecture notes, solved in advance under many shocks. Move a lever, compare two worlds, sweep a parameter, and read what the model does, figure by figure. Nothing here needs code."));
       var cards = el("div", { class: "ex-home-cards" });
       models.forEach(function (x) {
-        cards.appendChild(el("article", { class: "ex-card" }, "<h2>" + esc(x.title) + "</h2><p class=\"ex-muted\">" + esc(x.note) + ", " + x.scenarios +
+        cards.appendChild(el("article", { class: "ex-card" }, "<h2>" + esc(modelTitle(x)) + "</h2><p class=\"ex-muted\">" + esc(x.note) + ", " + x.scenarios +
           ' solved scenarios.</p><p><a class="btn-ex" href="#/m/' + esc(x.id) + '">Open</a> <a href="#/m/' + esc(x.id) + '/sweep">Sweeps</a> · <a href="#/m/' + esc(x.id) + '/table">All scenarios</a></p>'));
       });
       main.appendChild(cards);

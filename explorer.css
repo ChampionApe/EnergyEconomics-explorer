@@ -165,6 +165,10 @@ table.ex-table { border-collapse: collapse; font-size: 0.82rem; width: 100%; }
 .ex-table th, .ex-table td { padding: 0.25rem 0.45rem; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
 .ex-table th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--card); }
 .ex-table td.num, .ex-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* The table of every scenario: what each is, under its name. */
+.ex-table td.ex-scen-cell { white-space: normal; min-width: 16rem; max-width: 26rem; vertical-align: top; }
+.ex-scen-desc { font-size: 0.78rem; color: var(--ink-2); margin-top: 0.1rem; }
+.ex-compare-desc { margin: 0.5rem 0 0; }
 .ex-table tr.is-current td { background: var(--accent-soft); }
 
 /* A figure that cannot hold two scenarios, drawn once for each: side by
