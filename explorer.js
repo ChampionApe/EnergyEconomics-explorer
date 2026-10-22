@@ -495,11 +495,14 @@
     return box;
   }
   function defaultZone(fig, ctx) {
-    // Prices are read zone by zone; quantities default to the model's focus
-    // (Denmark in section 7, all twelve zones in section 8).
+    // Quantities default to the model's focus (Denmark in section 7, all
+    // twelve zones in section 8). Section 7 reads prices zone by zone;
+    // section 8 reads the system's price, the zones' prices weighted by
+    // their demand, as its figures do, except where a figure is about one
+    // zone's hours: the heatmap, the inspector and the electrolysers.
     if (fig.zones) return fig.zones[0];
-    var priced = fig === F["price-duration"] || fig === F.heatmap || fig === F.inspector || fig === F.electrolyser;
-    if (ctx && ctx.zone === "ALL") return priced ? "DE" : "ALL";
+    var zonal = fig === F.heatmap || fig === F.inspector || fig === F.electrolyser;
+    if (ctx && ctx.zone === "ALL") return zonal ? "DE" : "ALL";
     return (fig === F["price-duration"] || fig === F.heatmap) ? "DK1" : (fig === F.inspector ? "DK2" : "DK");
   }
 
@@ -723,20 +726,23 @@
         ["carbon_price", "Carbon price", 1, 0, "EUR/t"],
         ["system_cost", "System cost", 1e9, 1, "bn EUR"],
         ["emissions_total_t", "Emissions", 1e6, 1, "Mt"],
+        ["system_price", "System price", 1, 0, "EUR/MWh"],
         ["all_cap_battery_mw", "Batteries", 1e3, 1, "GW"],
+        ["shed_flex_hours", "Flexible demand steps back", 1, 0, "hours"],
         ["all_cap_electrolyser_mw", "Electrolysers", 1e3, 1, "GW"],
         ["h2_store_mwh", "Hydrogen storage", 1e6, 1, "TWh"],
         ["all_cap_h2_turbine_mw", "Hydrogen turbines", 1e3, 1, "GW"],
         ["grid_built_mw", "Interconnectors bought", 1e3, 1, "GW"],
       ],
       tabs: [
-        ["overview", "Overview", ["numbers", "capacity", "built-by-zone", "energy", "price-duration"]],
+        ["overview", "Overview", ["numbers", "capacity", "built-by-zone", "energy"]],
+        ["prices", "Prices and margins", ["price-duration", "price-setters", "scarce", "storage-value", "storage-cycles"]],
         ["hydrogen", "Hydrogen", ["h2-balance", "h2-store", "electrolyser"]],
         ["operation", "Operation", ["dispatch", "storage", "heatmap", "inspector"]],
         ["network", "Grid, emissions and money", ["map", "grid", "emissions", "recovery"]],
       ],
-      table: ["carbon_price", "system_cost", "emissions_total_t", "all_cap_solar_mw", "all_cap_wind_onshore_mw",
-        "all_cap_wind_offshore_mw", "all_cap_battery_mw", "all_cap_ocgt_biogas_mw", "all_cap_electrolyser_mw",
+      table: ["carbon_price", "system_cost", "emissions_total_t", "system_price", "all_cap_solar_mw", "all_cap_wind_onshore_mw",
+        "all_cap_wind_offshore_mw", "all_cap_battery_mw", "all_cap_ocgt_mw", "all_cap_electrolyser_mw",
         "h2_store_mwh", "electrolyser_flh", "grid_built_mw"],
     },
   };
@@ -839,8 +845,8 @@
       var lever = cat.levers.find(function (l) { return l.id === leverId; }) || sweeps[0];
       var met = cat.metrics.find(function (x) { return x.id === metric; }) || cat.metrics[0];
       // Families: the one-at-a-time sweep from the reference, plus every
-      // crossed variant that moves this lever with one or two others (the
-      // tax-against-cap years move the rung and the instrument together).
+      // crossed variant that moves this lever with one or two others (in
+      // section 8, the budget swept on each scenario of the model).
       var families = {};
       cat.scenarios.forEach(function (s) {
         if (!s.available || !byId[s.id]) return;

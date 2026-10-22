@@ -243,13 +243,28 @@
     // zone, Denmark's, since either Danish zone's price can be set across
     // the Great Belt.
     var zone = ctx.params.zone || (ctx.zone === "ALL" ? "ALL" : "DK1");
-    var cap = capTable(ctx.s, DK.indexOf(zone) >= 0 ? DK : U.zonesFor(zone));
+    var zones = DK.indexOf(zone) >= 0 ? DK : U.zonesFor(zone);
     var lines = [];
-    [["ocgt", "Gas peaker's running cost"], ["ocgt_biogas", "Biomethane peaker's running cost"],
-     ["ccgt", "Combined cycle's running cost"]].forEach(function (x) {
-      var c = cap[x[0]];
-      if (c && c.built + c.existing > 1) lines.push({ y: c.mc, label: x[1] });
-    });
+    var running = ctx.s.tables.running_costs;
+    if (running) {
+      // Section 8 prices carbon through its budget, so a plant's own running
+      // cost leaves it out; stage 2 writes the costs at the scenario's carbon
+      // price, a gas plant's on biomethane above the switch price.
+      [["ocgt", "Gas peaker's running cost"], ["ccgt", "Combined cycle's running cost"]].forEach(function (x) {
+        var mw = 0, sum = 0;
+        running.forEach(function (r) {
+          if (r.tech === x[0] && zones.indexOf(r.zone) >= 0) { mw += r.mw; sum += r.mw * r.eur_mwh; }
+        });
+        if (mw > 1) lines.push({ y: sum / mw, label: x[1] });
+      });
+    } else {
+      var cap = capTable(ctx.s, zones);
+      [["ocgt", "Gas peaker's running cost"], ["ocgt_biogas", "Biomethane peaker's running cost"],
+       ["ccgt", "Combined cycle's running cost"]].forEach(function (x) {
+        var c = cap[x[0]];
+        if (c && c.built + c.existing > 1) lines.push({ y: c.mc, label: x[1] });
+      });
+    }
     (ctx.cat.constants.demand_blocks || []).forEach(function (b) {
       lines.push({ y: b[2], label: b[0] === "shed_flex" ? "Flexible demand's valuation" : "Interruptible industry's valuation" });
     });
@@ -358,6 +373,54 @@
       out.push(is);
     }
     return out;
+  }
+
+  // Section 8's groups (the note's run_expansion.py, SETTER_GROUP and
+  // COVER_GROUP), in the order the figures draw them, coloured by
+  // technology group: what sets the system's price, and what covers its
+  // scarcest hours.
+  var group = function (g) { return function (cat) { return U.groupColor(cat, g); }; };
+  var token = function (name) { return function () { return U.css(name); }; };
+  var SETTERS = [
+    { id: "wind_solar", label: "Wind and solar, curtailed", color: group("onshore") },
+    { id: "nuclear", label: "Nuclear", color: group("nuclear") },
+    { id: "coal", label: "Coal, lignite and oil", color: group("other") },
+    { id: "gas", label: "Gas plants", color: group("gas") },
+    { id: "biomass", label: "Biomass, waste and geothermal", color: group("bio") },
+    { id: "hydro", label: "Hydro reservoirs and pumped hydro", color: group("hydro") },
+    { id: "battery", label: "Batteries", color: group("battery") },
+    { id: "cars", label: "The cars, charging or feeding back", color: token("--accent") },
+    { id: "electrolyser", label: "Electrolysers", color: group("hydrogen") },
+    { id: "demand", label: "Demand stepping back", color: token("--stop") },
+    { id: "unattributed", label: "Not attributed", color: token("--line-2") },
+  ];
+  var COVER = [
+    { id: "nuclear", label: "Nuclear", color: group("nuclear") },
+    { id: "coal", label: "Coal, lignite and oil", color: group("other") },
+    { id: "gas", label: "Gas plants on natural gas", color: group("gas") },
+    { id: "biomethane", label: "Gas plants on biomethane", color: group("bio"), hatch: true },
+    { id: "biomass", label: "Biomass, waste and geothermal", color: group("bio") },
+    { id: "hydro", label: "Hydro reservoirs and pumped hydro", color: group("hydro") },
+    { id: "battery", label: "Batteries", color: group("battery") },
+    { id: "cars", label: "The cars, feeding back", color: token("--accent") },
+    { id: "hydrogen", label: "Hydrogen turbines", color: group("hydrogen") },
+    { id: "demand", label: "Demand stepping back", color: token("--stop") },
+  ];
+  var DURATION = { 8: "8 hours", 12: "12 hours", 24: "a day", 48: "2 days", 96: "4 days",
+                   168: "a week", 336: "2 weeks", 720: "a month" };
+
+  // One more MW of storage of each duration (section 8's storage_value
+  // table), in the zone among `zones` where it would earn the most over its
+  // cost. Shared by the two storage figures, so that the factors one draws
+  // multiply to the ratio the other does.
+  function storageBest(d, zones) {
+    var o = {};
+    (d.tables.storage_value || []).forEach(function (r) {
+      if (zones.indexOf(r.zone) < 0) return;
+      var ratio = r.revenue_eur_mw / r.cost_eur_mw;
+      if (!o[r.hours] || ratio > o[r.hours].ratio) o[r.hours] = Object.assign({ ratio: ratio }, r);
+    });
+    return o;
   }
 
   // The zone and segment the inspector shows: by the snap control, or, in
@@ -560,13 +623,182 @@
         var i = dc0.x.findIndex(function (x) { return x >= h; });
         if (i >= 0) rows.push([U.fmt(h), U.fmt(dc0.y[i], 1)]);
       });
+      var notes = [];
+      if (U.zonesFor(zone).length > 1) notes.push("The zones' prices weighted, hour by hour, by their demand.");
+      if (ctx.s.tables.running_costs) notes.push("The gas plants' running costs include the scenario's carbon price; above the switch price they are a gas plant's on biomethane.");
+      if (!log) notes.push("Prices above 300 EUR/MWh run off the top; the log scale shows them all.");
       return { traces: traces, layout: U.layout({ height: 380, shapes: shapes, annotations: ann,
           xaxis: { title: U.axisTitle("Hours of the year at or above the price"), range: [0, 8760] },
           yaxis: log ? { type: "log", title: U.axisTitle("EUR/MWh (log scale)") }
                      : { title: U.axisTitle("EUR/MWh"), range: [0, top] },
           showlegend: !!ctx.c }),
         table: { columns: ["Hours at or above", "Price, EUR/MWh"], rows: rows },
-        note: log ? "" : "Prices above 300 EUR/MWh run off the top; the log scale shows them all." };
+        note: notes.join(" ") };
+    },
+  },
+
+  // Section 8's three measures of the whole system, which stage 2 computes
+  // with the note's own functions (lab/pipeline/solve_expansion.py,
+  // section8_tables): what sets the price, what covers the scarcest hours,
+  // and what one more MW of storage would earn.
+  "price-setters": { // figure
+    title: "What sets the price",
+    shows: "The share of the year's demand, over all twelve zones, whose price each kind of plant, storage or demand sets. A zone whose price is set across an uncongested interconnector takes what sets the price in the zones it shares its price with; one with several setters is split between them.",
+    controls: [],
+    compare: "overlay",
+    draw: function (ctx) {
+      var cat = ctx.cat, runs = U.runs(ctx), traces = [];
+      var shares = function (d) {
+        var o = {};
+        (d.tables.setters || []).forEach(function (r) { o[r.setter] = 100 * r.share; });
+        return o;
+      };
+      var all = runs.map(function (r) { return shares(r.d); });
+      var shown = SETTERS.filter(function (x) { return all.some(function (s) { return (s[x.id] || 0) >= 0.05; }); });
+      var labels = shown.map(function (x) { return x.label; }), colors = shown.map(function (x) { return x.color(cat); });
+      runs.slice().reverse().forEach(function (r) {
+        var s = shares(r.d);
+        traces.push({ type: "bar", orientation: "h", name: r.label, y: labels, x: shown.map(function (x) { return s[x.id] || 0; }),
+          marker: { color: colors, opacity: r.main ? 1 : 0.35, line: { width: r.main ? 0 : 1.5, color: colors } },
+          hovertemplate: "%{y}: %{x:.1f} % of the demand<extra>" + r.label + "</extra>", showlegend: false });
+      });
+      traces = traces.concat(U.runLegend(ctx));
+      var rows = shown.map(function (x, k) {
+        var row = [x.label, U.fmt(all[0][x.id] || 0, 1)];
+        if (ctx.c) row.push(U.fmt(all[1][x.id] || 0, 1));
+        return row;
+      });
+      var none = !(ctx.s.tables.setters || []).length;
+      return { traces: none ? [] : traces,
+        layout: U.layout({ barmode: "group", height: 90 + 32 * shown.length * (ctx.c ? 1.5 : 1), yaxis: { autorange: "reversed" },
+          xaxis: { title: U.axisTitle("Share of the year's demand, %"), rangemode: "tozero" } }),
+        table: { columns: ["What sets the price", ctx.sLabel + ", %"].concat(ctx.c ? [ctx.cLabel + ", %"] : []), rows: rows },
+        note: none ? "Not computed for this scenario." :
+          "A plant sets the price when it runs between zero and its available capacity at a running cost, carbon included, equal to the price; storage, the cars, electrolysers and hydro when they run between their limits. Gas plants burn biomethane above the switch price. Not attributed: demand whose price no single plant, storage facility or block of demand sets, mostly where the AC grid's loop flows tie the Nordic zones' prices to each other." };
+    },
+  },
+
+  "scarce": { // figure
+    title: "What covers the scarcest hours",
+    shows: "The tenth of the year with the highest residual demand over all twelve zones, the demand less the wind, solar and run-of-river available: what delivered the energy in those hours, as shares of what was delivered. Demand that stepped back counts as delivered by demand.",
+    controls: [],
+    compare: "overlay",
+    draw: function (ctx) {
+      var cat = ctx.cat, runs = U.runs(ctx), traces = [];
+      var shares = function (d) {
+        var o = {};
+        (d.tables.scarce || []).forEach(function (r) { o[r.source] = 100 * r.share; });
+        return o;
+      };
+      var all = runs.map(function (r) { return shares(r.d); });
+      var ys = runs.map(function (r) { return r.label; });
+      COVER.forEach(function (x) {
+        if (!all.some(function (s) { return (s[x.id] || 0) >= 0.05; })) return;
+        traces.push({ type: "bar", orientation: "h", name: x.label, y: ys, x: all.map(function (s) { return s[x.id] || 0; }),
+          marker: { color: x.color(cat), line: { width: 1.5, color: U.css("--card") },
+                    pattern: x.hatch ? { shape: "/", fillmode: "overlay", fgcolor: U.css("--card"), size: 7, solidity: 0.3 } : undefined },
+          hovertemplate: "%{x:.1f} %<extra>" + x.label + "</extra>" });
+      });
+      var rows = COVER.filter(function (x) { return all.some(function (s) { return (s[x.id] || 0) >= 0.05; }); }).map(function (x) {
+        var row = [x.label, U.fmt(all[0][x.id] || 0, 1)];
+        if (ctx.c) row.push(U.fmt(all[1][x.id] || 0, 1));
+        return row;
+      });
+      var none = !(ctx.s.tables.scarce || []).length;
+      return { traces: none ? [] : traces,
+        layout: U.layout({ barmode: "stack", height: 150 + 60 * runs.length, yaxis: { autorange: "reversed" },
+          xaxis: { title: U.axisTitle("Share of what was delivered in the scarcest tenth of the year, %"), range: [0, 100] } }),
+        table: { columns: ["Source", ctx.sLabel + ", %"].concat(ctx.c ? [ctx.cLabel + ", %"] : []), rows: rows },
+        note: none ? "Not computed for this scenario." :
+          "Gas plants' output is split between natural gas and biomethane by the share of biomethane each zone's gas plants burn over the year." };
+    },
+  },
+
+  "storage-value": { // figure
+    title: "What one more MW of storage would earn",
+    shows: "What one more MW of storage of each duration would earn in a year, trading against the scenario's prices with perfect foresight, over its annual cost on the battery menu: a cost per MW of power and a cost per MWh of energy for each hour of duration. At 1 it would just pay for itself.",
+    controls: ["zone"],
+    compare: "overlay",
+    draw: function (ctx) {
+      var zone = ctx.params.zone || "ALL", zones = U.zonesFor(zone), runs = U.runs(ctx), traces = [];
+      var best = function (d) { return storageBest(d, zones); };
+      var all = runs.map(function (r) { return best(r.d); });
+      var hours = Object.keys(all[0]).map(Number).sort(function (a, b) { return a - b; });
+      runs.slice().reverse().forEach(function (r) {
+        var b = best(r.d);
+        traces.push({ type: "scatter", mode: "lines+markers", name: r.label, x: hours, y: hours.map(function (h) { return b[h] ? b[h].ratio : null; }),
+          line: { width: r.main ? 2.4 : 2, color: r.main ? U.groupColor(ctx.cat, "battery") : U.css("--accent"), dash: r.main ? "solid" : "dash" },
+          marker: { size: 8, line: { width: 2, color: U.css("--card") } },
+          customdata: hours.map(function (h) { return b[h] ? b[h].zone : ""; }),
+          hovertemplate: "%{x} hours: %{y:.2f} of its cost (%{customdata})<extra>" + r.label + "</extra>" });
+      });
+      var rows = hours.map(function (h) {
+        var a = all[0][h], row = [DURATION[h] || h + " hours", U.fmt(a.ratio, 2), a.zone, U.fmt(a.cycles, 0),
+          U.fmt(a.revenue_eur_mw / 1e3, 1), U.fmt(a.cost_eur_mw / 1e3, 1)];
+        if (ctx.c) row.push(all[1][h] ? U.fmt(all[1][h].ratio, 2) : "–");
+        return row;
+      });
+      var none = !hours.length;
+      return { traces: none ? [] : traces,
+        layout: U.layout({ height: 400, showlegend: !!ctx.c,
+          shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 1, y1: 1, line: { color: U.css("--muted"), width: 1 } }],
+          xaxis: { title: U.axisTitle("Duration: hours of storage per MW"), type: "log",
+                   tickvals: hours, ticktext: hours.map(function (h) { return DURATION[h] || String(h); }) },
+          yaxis: { title: U.axisTitle("What it would earn over what it costs"), rangemode: "tozero" } }),
+        table: { columns: ["Duration", "Earnings over cost", "Zone", "Full cycles a year", "Earnings, k EUR per MW",
+          "Annual cost, k EUR per MW"].concat(ctx.c ? ["Earnings over cost, " + ctx.cLabel] : []), rows: rows },
+        note: none ? "Not computed for this scenario." :
+          (zones.length > 1 ? "Each duration in the zone where it would earn the most. " : "") +
+          "A battery the scenario built comes out at its cost. Losses as the menu's batteries: 95 % in, 95 % out." };
+    },
+  },
+
+  // The two factors of what "storage-value" draws (RKB, 2026-10-22): what a
+  // MW earns is its full cycles a year, times its duration, times what it
+  // earns per MWh it delivers.
+  "storage-cycles": { // figure
+    title: "How often storage would cycle, and what each MWh would earn",
+    shows: "The two factors of what one more MW of storage of each duration would earn in a year, trading against the scenario's prices with perfect foresight. Above, the full cycles it would run: the energy it delivers over the energy it holds. Below, what it would earn per MWh it delivers: the price it sells at, less what the energy cost it to buy, losses and its operating charge included. Cycles times duration times earnings per MWh is what it would earn per MW.",
+    controls: ["zone"],
+    compare: "overlay",
+    draw: function (ctx) {
+      var zone = ctx.params.zone || "ALL", zones = U.zonesFor(zone), runs = U.runs(ctx), traces = [];
+      var all = runs.map(function (r) { return storageBest(r.d, zones); });
+      var hours = Object.keys(all[0]).map(Number).sort(function (a, b) { return a - b; });
+      var perMWh = function (a) { return a && a.cycles > 0 ? a.revenue_eur_mw / (a.cycles * a.hours) : null; };
+      runs.slice().reverse().forEach(function (r) {
+        var b = storageBest(r.d, zones);
+        var line = { width: r.main ? 2.4 : 2, color: r.main ? U.groupColor(ctx.cat, "battery") : U.css("--accent"), dash: r.main ? "solid" : "dash" };
+        var marker = { size: 8, line: { width: 2, color: U.css("--card") } };
+        var where = hours.map(function (h) { return b[h] ? b[h].zone : ""; });
+        traces.push({ type: "scatter", mode: "lines+markers", name: r.label, x: hours, yaxis: "y",
+          y: hours.map(function (h) { return b[h] ? b[h].cycles : null; }), line: line, marker: marker, customdata: where,
+          hovertemplate: "%{x} hours: %{y:.0f} full cycles a year (%{customdata})<extra>" + r.label + "</extra>" });
+        traces.push({ type: "scatter", mode: "lines+markers", name: r.label, x: hours, yaxis: "y2", showlegend: false,
+          y: hours.map(function (h) { return perMWh(b[h]); }), line: line, marker: marker, customdata: where,
+          hovertemplate: "%{x} hours: %{y:.0f} EUR per MWh delivered (%{customdata})<extra>" + r.label + "</extra>" });
+      });
+      var rows = hours.map(function (h) {
+        var a = all[0][h], row = [DURATION[h] || h + " hours", a.zone, U.fmt(a.cycles, 0), U.fmt(perMWh(a), 0),
+          U.fmt(a.revenue_eur_mw / 1e3, 1)];
+        if (ctx.c) row.push(U.fmt(all[1][h] ? all[1][h].cycles : null, 0), U.fmt(perMWh(all[1][h]), 0));
+        return row;
+      });
+      var none = !hours.length;
+      var ax = { gridcolor: U.css("--grid"), linecolor: U.css("--axis"), zeroline: false,
+                 tickfont: { color: U.css("--muted") }, automargin: true };
+      return { traces: none ? [] : traces,
+        layout: U.layout({ height: 500, showlegend: !!ctx.c,
+          xaxis: { anchor: "y2", title: U.axisTitle("Duration: hours of storage per MW"), type: "log",
+                   tickvals: hours, ticktext: hours.map(function (h) { return DURATION[h] || String(h); }) },
+          yaxis: { domain: [0.56, 1], type: "log", title: U.axisTitle("Full cycles a year (log scale)"),
+                   tickvals: [2, 5, 10, 20, 50, 100, 200, 500], ticktext: ["2", "5", "10", "20", "50", "100", "200", "500"] },
+          yaxis2: U.merge(ax, { domain: [0, 0.44], title: U.axisTitle("EUR per MWh delivered"), rangemode: "tozero" }) }),
+        table: { columns: ["Duration", "Zone", "Full cycles a year", "Earnings per MWh delivered, EUR", "Earnings, k EUR per MW"]
+          .concat(ctx.c ? ["Full cycles a year, " + ctx.cLabel, "Earnings per MWh delivered, EUR, " + ctx.cLabel] : []), rows: rows },
+        note: none ? "Not computed for this scenario." :
+          (zones.length > 1 ? "Each duration in the zone where it would earn the most over its cost, as in \"What one more MW of storage would earn\". " : "") +
+          "Losses as the menu's batteries: 95 % in, 95 % out." };
     },
   },
 
@@ -1188,47 +1420,54 @@
 
   "h2-balance": { // figure
     title: function (ctx) { return "Hydrogen supply and use: " + U.zoneName(ctx.cat, ctx.params.zone || "ALL"); },
-    shows: "A year's hydrogen, in TWh of hydrogen: made from natural gas, imported or electrolysed, and used by industry or burnt back into electricity.",
+    shows: "A year's hydrogen, in TWh of hydrogen: reformed from natural gas or from biomethane, imported or electrolysed, and used by industry or burnt back into electricity.",
     controls: ["zone"],
     compare: "overlay",
     draw: function (ctx) {
       var cat = ctx.cat, zones = U.zonesFor(ctx.params.zone || "ALL"), runs = U.runs(ctx), traces = [];
       function sums(d) {
-        var o = { smr: 0, imp: 0, el: 0, ind: 0, pow: 0 };
+        var o = { gas: 0, bio: 0, imp: 0, el: 0, ind: 0, pow: 0 };
         (d.tables.hydrogen || []).forEach(function (r) {
           if (zones.indexOf(r.zone) < 0) return;
-          o.smr += r.smr_mwh; o.imp += r.import_mwh; o.el += r.electrolysis_mwh; o.ind += r.demand_mwh; o.pow += r.to_power_mwh;
+          var bio = r.smr_biomethane_mwh || 0;
+          o.gas += r.smr_mwh - bio; o.bio += bio; o.imp += r.import_mwh; o.el += r.electrolysis_mwh;
+          o.ind += r.demand_mwh; o.pow += r.to_power_mwh;
         });
         return o;
       }
-      var cats = ["Made from natural gas", "Imported", "Electrolysed", "Used by industry", "Burnt for electricity"];
-      var colors = [U.techColor(cat, "smr"), U.techColor(cat, "h2_import"), U.techColor(cat, "electrolyser"), U.css("--ink-2"),
-                    U.techColor(cat, "h2_turbine")];
+      var cats = ["Reformed from natural gas", "Reformed from biomethane", "Imported", "Electrolysed", "Used by industry",
+                  "Burnt for electricity"];
+      var colors = [U.techColor(cat, "smr"), U.groupColor(cat, "bio"), U.techColor(cat, "h2_import"), U.techColor(cat, "electrolyser"),
+                    U.css("--ink-2"), U.techColor(cat, "h2_turbine")];
       runs.slice().reverse().forEach(function (r) {
         var s = sums(r.d);
         traces.push({ type: "bar", orientation: "h", name: r.label, y: cats,
-          x: [s.smr, s.imp, s.el, s.ind, s.pow].map(function (v) { return v / 1e6; }),
+          x: [s.gas, s.bio, s.imp, s.el, s.ind, s.pow].map(function (v) { return v / 1e6; }),
           marker: { color: colors, opacity: r.main ? 1 : 0.35, line: { width: r.main ? 0 : 1.5, color: colors } },
           hovertemplate: "%{y}: %{x:.1f} TWh<extra>" + r.label + "</extra>", showlegend: false });
       });
       traces = traces.concat(U.runLegend(ctx));
       var rows = (ctx.s.tables.hydrogen || []).filter(function (r) { return zones.indexOf(r.zone) >= 0; }).map(function (r) {
-        return [r.zone, U.fmt(r.demand_mwh / 1e6, 1), U.fmt(r.smr_mwh / 1e6, 1), U.fmt(r.import_mwh / 1e6, 1),
-          U.fmt(r.electrolysis_mwh / 1e6, 1), U.fmt(r.to_power_mwh / 1e6, 2), U.fmt(r.electrolyser_mw / 1e3, 1),
-          U.fmt(r.electrolyser_flh, 0), U.fmt(r.store_mwh / 1e6, 2), U.fmt(r.h2_price, 0)];
+        var bio = r.smr_biomethane_mwh || 0;
+        return [r.zone, U.fmt(r.demand_mwh / 1e6, 1), U.fmt((r.smr_mwh - bio) / 1e6, 1), U.fmt(bio / 1e6, 1),
+          U.fmt(r.import_mwh / 1e6, 1), U.fmt(r.electrolysis_mwh / 1e6, 1), U.fmt(r.to_power_mwh / 1e6, 2),
+          U.fmt(r.electrolyser_mw / 1e3, 1), U.fmt(r.electrolyser_flh, 0), U.fmt(r.store_mwh / 1e6, 2), U.fmt(r.h2_price, 0)];
       });
       var none = !runs.some(function (r) { return (r.d.tables.hydrogen || []).length; });
       return { traces: none ? [] : traces,
         layout: U.layout({ barmode: "group", height: 90 + 40 * cats.length * (ctx.c ? 1.5 : 1), yaxis: { autorange: "reversed" },
           xaxis: { title: U.axisTitle("TWh of hydrogen a year"), rangemode: "tozero" } }),
-        table: { columns: ["Zone", "Industry, TWh", "From gas, TWh", "Imported, TWh", "Electrolysed, TWh", "Burnt for electricity, TWh",
-          "Electrolysers, GW", "Electrolyser full-load hours", "Storage, TWh", "Average hydrogen price, EUR/MWh"], rows: rows },
-        note: none ? "This scenario has no hydrogen sector." : "Only zones with an industrial hydrogen demand have a hydrogen sector, and hydrogen cannot move between zones." };
+        table: { columns: ["Zone", "Industry, TWh", "Reformed from natural gas, TWh", "Reformed from biomethane, TWh", "Imported, TWh",
+          "Electrolysed, TWh", "Burnt for electricity, TWh", "Electrolysers, GW", "Electrolyser full-load hours", "Storage, TWh",
+          "Average hydrogen price, EUR/MWh"], rows: rows },
+        note: none ? "This scenario has no hydrogen sector." :
+          "Only zones with an industrial hydrogen demand have a hydrogen sector, and hydrogen cannot move between zones. " +
+          "A zone's reformers take its share of biomethane in all the gas its plants and reformers burn." };
     },
   },
 
   "h2-store": { // figure
-    title: function (ctx) { return "Hydrogen in store through the year: " + U.zoneName(ctx.cat, ctx.params.zone || "ALL"); },
+    title: function (ctx) { return "Hydrogen in storage through the year: " + U.zoneName(ctx.cat, ctx.params.zone || "ALL"); },
     shows: "Hydrogen held in salt caverns and steel tanks through the year, in TWh of hydrogen; below, the electricity the electrolysers draw.",
     controls: ["zone"],
     compare: "overlay",
